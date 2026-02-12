@@ -80,6 +80,10 @@ class Experience(BaseModel):
     modality_features: dict[Modality, list[float]] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    # Graph memory fields (populated by GraphMemory)
+    entities: list[str] = Field(default_factory=list)
+    relationships: list[dict[str, str]] = Field(default_factory=list)
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

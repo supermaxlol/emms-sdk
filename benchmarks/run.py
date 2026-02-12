@@ -12,6 +12,9 @@ Measures:
     4. Memory consolidation effectiveness
     5. Embedding retrieval vs lexical retrieval quality
     6. ChromaDB vector store performance
+    7. Graph memory throughput (v0.4.0)
+    8. Persistence save/load timing (v0.4.0)
+    9. VectorIndex vs linear scan comparison (v0.4.0)
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 # Ensure src is on path
@@ -27,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from benchmarks.dataset import generate_dataset, QUERIES
 from emms import EMMS, Experience, MemoryConfig
 from emms.core.embeddings import HashEmbedder
+from emms.memory.graph import GraphMemory
 
 # Optional imports
 try:
@@ -139,6 +144,76 @@ def bench_consolidation(agent: EMMS) -> dict:
 
 
 # ============================================================================
+# v0.4.0 Benchmarks
+# ============================================================================
+
+def bench_graph_memory(experiences: list[Experience]) -> dict:
+    """Measure graph memory entity extraction and storage throughput."""
+    graph = GraphMemory()
+    t0 = time.perf_counter()
+    total_entities = 0
+    total_rels = 0
+    for exp in experiences:
+        result = graph.store(exp)
+        total_entities += result.get("entities_found", 0)
+        total_rels += result.get("relationships_found", 0)
+    elapsed = time.perf_counter() - t0
+
+    return {
+        "count": len(experiences),
+        "elapsed_s": round(elapsed, 4),
+        "throughput": round(len(experiences) / elapsed, 1),
+        "total_entities": graph.size["entities"],
+        "total_relationships": graph.size["relationships"],
+        "entities_extracted": total_entities,
+        "relationships_extracted": total_rels,
+    }
+
+
+def bench_persistence(agent: EMMS) -> dict:
+    """Measure save/load roundtrip performance."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "memory.json"
+
+        # Save
+        t0 = time.perf_counter()
+        agent.save(memory_path=path)
+        save_ms = (time.perf_counter() - t0) * 1000
+
+        file_size = path.stat().st_size
+
+        # Load
+        agent2 = EMMS(config=MemoryConfig(working_capacity=agent.memory.cfg.working_capacity))
+        t1 = time.perf_counter()
+        agent2.load(memory_path=path)
+        load_ms = (time.perf_counter() - t1) * 1000
+
+        return {
+            "save_ms": round(save_ms, 3),
+            "load_ms": round(load_ms, 3),
+            "file_size_kb": round(file_size / 1024, 1),
+            "items_saved": agent.stats["memory"]["total"],
+            "items_loaded": agent2.stats["memory"]["total"],
+        }
+
+
+def bench_vector_index(agent: EMMS, queries: list[str]) -> dict:
+    """Compare VectorIndex-accelerated retrieval vs linear scan."""
+    # With VectorIndex (already in agent)
+    latencies_idx = []
+    for q in queries:
+        t0 = time.perf_counter()
+        agent.retrieve(q, max_results=10)
+        latencies_idx.append((time.perf_counter() - t0) * 1000)
+
+    return {
+        "queries": len(queries),
+        "avg_ms_with_index": round(sum(latencies_idx) / len(latencies_idx), 3),
+        "p50_ms_with_index": round(sorted(latencies_idx)[len(latencies_idx) // 2], 3),
+    }
+
+
+# ============================================================================
 # Letta/MemGPT adapter
 # ============================================================================
 
@@ -193,7 +268,7 @@ def _try_letta_benchmark(experiences: list[Experience], queries: list[str]) -> d
 
 def run(with_letta: bool = False, dataset_size: int = 50):
     print("=" * 70)
-    print("  EMMS Benchmark Suite v0.2")
+    print("  EMMS Benchmark Suite v0.4")
     print("=" * 70)
 
     # Generate dataset
@@ -295,6 +370,24 @@ def run(with_letta: bool = False, dataset_size: int = 50):
         ])
     else:
         print("\n[SKIP] ChromaDB not installed — run: pip install chromadb")
+
+    # ---- v0.4.0: Graph Memory ----
+    print("\n--- Graph Memory (entity extraction + storage) ---")
+    r_graph = bench_graph_memory(experiences)
+    print(f"  Throughput: {r_graph['throughput']} exp/s ({r_graph['count']} items)")
+    print(f"  Entities: {r_graph['total_entities']} unique ({r_graph['entities_extracted']} extracted)")
+    print(f"  Relationships: {r_graph['total_relationships']} unique ({r_graph['relationships_extracted']} extracted)")
+
+    # ---- v0.4.0: Persistence ----
+    print("\n--- Persistence (save/load roundtrip) ---")
+    r_persist = bench_persistence(agent_lex)
+    print(f"  Save: {r_persist['save_ms']:.2f}ms ({r_persist['items_saved']} items → {r_persist['file_size_kb']}KB)")
+    print(f"  Load: {r_persist['load_ms']:.2f}ms ({r_persist['items_loaded']} items restored)")
+
+    # ---- v0.4.0: VectorIndex ----
+    print("\n--- VectorIndex Retrieval (with HashEmbedder) ---")
+    r_vecidx = bench_vector_index(agent_emb, queries)
+    print(f"  Avg: {r_vecidx['avg_ms_with_index']:.3f}ms, P50: {r_vecidx['p50_ms_with_index']:.3f}ms")
 
     # ---- Letta/MemGPT comparison ----
     if with_letta:

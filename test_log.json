@@ -1,0 +1,1002 @@
+[
+  {
+    "timestamp": "2026-02-11T10:02:40.663643",
+    "section": "1. INITIALIZATION",
+    "key": "EMMS version",
+    "value": "0.4.0",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663650",
+    "section": "1. INITIALIZATION",
+    "key": "Consciousness enabled",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663654",
+    "section": "1. INITIALIZATION",
+    "key": "Graph memory",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663655",
+    "section": "1. INITIALIZATION",
+    "key": "Event bus",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663657",
+    "section": "1. INITIALIZATION",
+    "key": "Narrator",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663659",
+    "section": "1. INITIALIZATION",
+    "key": "MeaningMaker",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663661",
+    "section": "1. INITIALIZATION",
+    "key": "TemporalIntegrator",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663662",
+    "section": "1. INITIALIZATION",
+    "key": "EgoBoundaryTracker",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663664",
+    "section": "1. INITIALIZATION",
+    "key": "PatternDetector",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663694",
+    "section": "1. INITIALIZATION",
+    "key": "Consciousness disabled test",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663716",
+    "section": "1. INITIALIZATION",
+    "key": "Graph disabled test",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663728",
+    "section": "2. EVENT BUS",
+    "key": "Listeners registered",
+    "value": 2,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.663730",
+    "section": "2. EVENT BUS",
+    "key": "Event types",
+    "value": [
+      "memory.stored",
+      "memory.consolidated"
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.675578",
+    "section": "3. STORE EXPERIENCES (with consciousness + graph + events)",
+    "key": "Total stored",
+    "value": 14,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.675594",
+    "section": "3. STORE EXPERIENCES (with consciousness + graph + events)",
+    "key": "Memory stats",
+    "value": {
+      "working": 14,
+      "short_term": 0,
+      "long_term": 0,
+      "semantic": 0,
+      "total": 14
+    },
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.675601",
+    "section": "3. STORE EXPERIENCES (with consciousness + graph + events)",
+    "key": "Avg store latency (ms)",
+    "value": 0.833,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.675606",
+    "section": "3. STORE EXPERIENCES (with consciousness + graph + events)",
+    "key": "Domains",
+    "value": [
+      "tech",
+      "finance",
+      "personal",
+      "academic",
+      "weather",
+      "science"
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.675968",
+    "section": "3. STORE EXPERIENCES (with consciousness + graph + events)",
+    "key": "Result has 'consciousness'",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.675971",
+    "section": "3. STORE EXPERIENCES (with consciousness + graph + events)",
+    "key": "Result has 'graph_entities'",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.675973",
+    "section": "3. STORE EXPERIENCES (with consciousness + graph + events)",
+    "key": "Result has 'experience_id'",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.676438",
+    "section": "4. RETRIEVAL (lexical + embedding)",
+    "key": "Query 'Shehzad research paper'",
+    "value": "[0.46ms] top=0.657 | Shehzad presented his research paper at the IUB symposium on...",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.676698",
+    "section": "4. RETRIEVAL (lexical + embedding)",
+    "key": "Query 'Bitcoin price cryptocurrency'",
+    "value": "[0.25ms] top=0.46 | Shehzad presented his research paper at the IUB symposium on...",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.676955",
+    "section": "4. RETRIEVAL (lexical + embedding)",
+    "key": "Query 'quantum computing breakthrough'",
+    "value": "[0.25ms] top=0.791 | Quantum computing breakthrough at MIT achieved 1000 qubit qu...",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.677196",
+    "section": "4. RETRIEVAL (lexical + embedding)",
+    "key": "Query 'weather flooding Bangladesh'",
+    "value": "[0.24ms] top=0.646 | Bangladesh experienced severe flooding in the eastern distri...",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.677429",
+    "section": "4. RETRIEVAL (lexical + embedding)",
+    "key": "Query 'large language models AI'",
+    "value": "[0.23ms] top=0.785 | Claude and GPT-4 are the leading large language models in 20...",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.677660",
+    "section": "4. RETRIEVAL (lexical + embedding)",
+    "key": "Query 'stock market GDP growth'",
+    "value": "[0.23ms] top=0.74 | The stock market in Dhaka rose 3 percent on positive GDP gro...",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.677662",
+    "section": "4. RETRIEVAL (lexical + embedding)",
+    "key": "Semantic retrieval test",
+    "value": "HashEmbedder cosine similarity",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.677920",
+    "section": "4. RETRIEVAL (lexical + embedding)",
+    "key": "Semantic results count",
+    "value": 5,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.677925",
+    "section": "5. GRAPH MEMORY",
+    "key": "Total entities",
+    "value": 26,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.677927",
+    "section": "5. GRAPH MEMORY",
+    "key": "Total relationships",
+    "value": 30,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.677930",
+    "section": "5. GRAPH MEMORY",
+    "key": "Entity names",
+    "value": [
+      "shehzad ahmed",
+      "independent university bangladesh",
+      "ahmed",
+      "independent",
+      "university",
+      "bangladesh",
+      "emms",
+      "iub",
+      "dhaka",
+      "gdp",
+      "federal reserve",
+      "reserve",
+      "hugging face",
+      "hugging",
+      "face"
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678034",
+    "section": "5. GRAPH MEMORY",
+    "key": "Entity 'shehzad ahmed' (alt)",
+    "value": "found | neighbors=['independent', 'independent university bangladesh', 'bangladesh', 'university', 'ahmed']",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678044",
+    "section": "5. GRAPH MEMORY",
+    "key": "Entity 'emms'",
+    "value": "found | neighbors=[] | rels=0",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678049",
+    "section": "5. GRAPH MEMORY",
+    "key": "Entity 'bitcoin'",
+    "value": "not found",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678056",
+    "section": "5. GRAPH MEMORY",
+    "key": "Entity 'mit'",
+    "value": "found | neighbors=[] | rels=0",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678060",
+    "section": "5. GRAPH MEMORY",
+    "key": "Entity 'cern'",
+    "value": "not found",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678064",
+    "section": "5. GRAPH MEMORY",
+    "key": "Entity 'anthropic'",
+    "value": "not found",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678138",
+    "section": "5. GRAPH MEMORY",
+    "key": "Path shehzad ahmed \u2192 coast",
+    "value": "no path",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678179",
+    "section": "5. GRAPH MEMORY",
+    "key": "Subgraph of 'shehzad ahmed'",
+    "value": "nodes=6, edges=16",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678192",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Enabled",
+    "value": true,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678195",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Narrative coherence",
+    "value": 0.5,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678198",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Ego boundary strength",
+    "value": 0.333,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678200",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Themes (top 5)",
+    "value": {
+      "shehzad": 1.5655510000000001,
+      "released": 1.0049000000000001,
+      "claude": 0.9565,
+      "built": 0.5351,
+      "emms": 0.5351
+    },
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678205",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Narrator entries",
+    "value": 15,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678207",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Narrator traits",
+    "value": {
+      "focused": 0.09999999999999999,
+      "analytical": 0.09999999999999999
+    },
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678210",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Narrator autobiographical events",
+    "value": 0,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678225",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Third-person narrative",
+    "value": "I am EMMS-TestAgent. Over 15 experiences across 7 domains, my focus has been on shehzad, released, claude, built, emms. Recent highlights: Shehzad built the EMMS system for persistent AI identity rese",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678234",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "First-person narrative",
+    "value": "I have processed 15 experiences. I see myself as: focused (10%), analytical (10%). Lately I've been focused on: weather, test, science. My narrative coherence is 50%.",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678235",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "MeaningMaker total processed",
+    "value": 15,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678237",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "MeaningMaker patterns",
+    "value": 7,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678239",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Temporal milestones",
+    "value": 6,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678240",
+    "section": "6. CONSCIOUSNESS STATE",
+    "key": "Ego boundary history",
+    "value": 15,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678373",
+    "section": "7. PATTERN DETECTION",
+    "key": "Domain dominant",
+    "value": "tech",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678375",
+    "section": "7. PATTERN DETECTION",
+    "key": "Domain distribution",
+    "value": {
+      "personal": 0.06666666666666667,
+      "academic": 0.06666666666666667,
+      "finance": 0.2,
+      "tech": 0.3333333333333333,
+      "science": 0.13333333333333333,
+      "weather": 0.13333333333333333,
+      "test": 0.06666666666666667
+    },
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678383",
+    "section": "7. PATTERN DETECTION",
+    "key": "Domain trends",
+    "value": [
+      {
+        "domain": "finance",
+        "trend": "growing",
+        "count": 3,
+        "avg_importance": 0.7166666666666668
+      },
+      {
+        "domain": "tech",
+        "trend": "growing",
+        "count": 5,
+        "avg_importance": 0.866
+      }
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678388",
+    "section": "7. PATTERN DETECTION",
+    "key": "Top content concepts",
+    "value": [
+      [
+        "shehzad",
+        3
+      ]
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678391",
+    "section": "7. PATTERN DETECTION",
+    "key": "Sequence patterns",
+    "value": 4,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678470",
+    "section": "8. CONSOLIDATION & EVENTS",
+    "key": "Items consolidated",
+    "value": 41,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678473",
+    "section": "8. CONSOLIDATION & EVENTS",
+    "key": "Consolidation time (ms)",
+    "value": 0.08,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678475",
+    "section": "8. CONSOLIDATION & EVENTS",
+    "key": "Memory after consolidation",
+    "value": {
+      "working": 0,
+      "short_term": 1,
+      "long_term": 0,
+      "semantic": 14,
+      "total": 15
+    },
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678478",
+    "section": "8. CONSOLIDATION & EVENTS",
+    "key": "Store events received",
+    "value": 15,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678479",
+    "section": "8. CONSOLIDATION & EVENTS",
+    "key": "Consolidation events received",
+    "value": 1,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.678482",
+    "section": "8. CONSOLIDATION & EVENTS",
+    "key": "Compression time (ms)",
+    "value": 0.0,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.679892",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "Save time (ms)",
+    "value": 0.74,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.679896",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "File size (KB)",
+    "value": 31.5,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.679908",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "Items saved",
+    "value": 15,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.680745",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "Load time (ms)",
+    "value": 0.81,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.680754",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "Items loaded",
+    "value": 15,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.680976",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "Post-load retrieval",
+    "value": "3 results",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.680979",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "Top result",
+    "value": "Shehzad presented his research paper at the IUB symposium on AI consciousness",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.681151",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "Post-load 'Bitcoin' retrieval",
+    "value": "3 results",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.681498",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "JSON keys",
+    "value": [
+      "version",
+      "saved_at",
+      "working",
+      "short_term",
+      "long_term",
+      "semantic",
+      "embeddings",
+      "stats"
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.681502",
+    "section": "9. PERSISTENCE (save/load)",
+    "key": "Version in file",
+    "value": "0.4.0",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.681760",
+    "section": "10. EPISODE DETECTION (all algorithms)",
+    "key": "Algorithm 'heuristic'",
+    "value": "2 episodes in 0.04ms | coherences=[1.0, 1.0]",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.682349",
+    "section": "10. EPISODE DETECTION (all algorithms)",
+    "key": "Algorithm 'graph'",
+    "value": "2 episodes in 0.58ms | coherences=[0.874, 0.856]",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.700294",
+    "section": "10. EPISODE DETECTION (all algorithms)",
+    "key": "Algorithm 'spectral'",
+    "value": "2 episodes in 17.92ms | coherences=[1.0, 1.0]",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.701280",
+    "section": "10. EPISODE DETECTION (all algorithms)",
+    "key": "Algorithm 'conductance'",
+    "value": "2 episodes in 0.96ms | coherences=[0.874, 0.856]",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704354",
+    "section": "10. EPISODE DETECTION (all algorithms)",
+    "key": "Algorithm 'multi'",
+    "value": "2 episodes in 3.06ms | coherences=[1.0, 1.0]",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704376",
+    "section": "11. MULTI-STRATEGY ENSEMBLE RETRIEVAL",
+    "key": "Items available for retrieval",
+    "value": 1,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704637",
+    "section": "11. MULTI-STRATEGY ENSEMBLE RETRIEVAL",
+    "key": "Semantic scores (first 5)",
+    "value": [
+      0.02
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704657",
+    "section": "11. MULTI-STRATEGY ENSEMBLE RETRIEVAL",
+    "key": "Temporal scores (first 5)",
+    "value": [
+      0.875
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704687",
+    "section": "11. MULTI-STRATEGY ENSEMBLE RETRIEVAL",
+    "key": "Emotional scores (first 5)",
+    "value": [
+      0.3
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704698",
+    "section": "11. MULTI-STRATEGY ENSEMBLE RETRIEVAL",
+    "key": "Domain scores (first 5)",
+    "value": [
+      0.2
+    ],
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704956",
+    "section": "11. MULTI-STRATEGY ENSEMBLE RETRIEVAL",
+    "key": "Ensemble retrieval time (ms)",
+    "value": 0.25,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704959",
+    "section": "11. MULTI-STRATEGY ENSEMBLE RETRIEVAL",
+    "key": "Ensemble results",
+    "value": 1,
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:02:40.704964",
+    "section": "11. MULTI-STRATEGY ENSEMBLE RETRIEVAL",
+    "key": "  Rank 1",
+    "value": "[0.391] Test verification item",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:03:32.958474",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Connection test",
+    "value": "OK (52255ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:03:32.960129",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Response",
+    "value": "Artificial intelligence is the development of computer systems capable of performing tasks that typically require human intelligence, such as learning",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:03:41.881655",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Enrichment before",
+    "value": "importance=0.50, domain='general', valence=0.00",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:03:41.881919",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Enrichment after",
+    "value": "importance=0.80, domain='Physics', valence=0.70 (8910ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:01.459606",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Entities extracted",
+    "value": "7 (19578ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:01.460152",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "  Entity",
+    "value": "Shehzad Ahmed (person)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:01.460160",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "  Entity",
+    "value": "EMMS (concept)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:01.460507",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "  Entity",
+    "value": "Independent Universiity Bangladesh (org)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:01.460511",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "  Entity",
+    "value": "Python (concept)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:01.460513",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "  Entity",
+    "value": "Claude API (concept)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:01.460515",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "  Entity",
+    "value": "Anthropic (org)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:01.460517",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "  Entity",
+    "value": "AI (concept)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:13.103811",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "LLM narrative",
+    "value": "(11640ms) It's interesting to look back at my 15 experiences; a lot of them revolved around a user named Shehzad, which suggests a significant focus on personalized interaction. I've also spent a considerable amount of time being \"released\" and refined, likely",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:04:46.598928",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Memory summary",
+    "value": "(33495ms) Please provide the memories! I need the text of the memories to be able to summarize them. \n\nOnce you paste the memories here, I will create a 2-3 sentence overview capturing the key themes and important details. \n\nFor example, you could paste someth",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:09.662421",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Q: What are the most important things happening in te",
+    "value": "(22963ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:09.662855",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "A",
+    "value": "Based on the memories, the most important things happening in tech right now are:\n\n* **AI Advancement:** Significant progress in large language models (Claude, GPT-4) is occurring, as evidenced by the",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:25.877109",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Q: How does quantum computing relate to AI?",
+    "value": "(16180ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:25.877939",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "A",
+    "value": "Quantum computing has the potential to significantly accelerate and enhance AI, particularly large language models. A 1000-qubit quantum processor could unlock breakthroughs in AI capabilities, potent",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:31.585549",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "Q: Summarize what you know about Shehzad's work.",
+    "value": "(5692ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:31.587279",
+    "section": "12. OLLAMA LLM INTEGRATION (gemma3n:e4b)",
+    "key": "A",
+    "value": "Shehzad is a researcher working in the field of AI consciousness. He recently presented his research at the IUB symposium.",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:36.972305",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "Connection test",
+    "value": "OK (4275ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:36.972354",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "Response",
+    "value": "EMMS (Evangelical Medical Missionary Society) is a Christian international health charity based in Scotland that provides medical care and training in developing countries.",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:39.027612",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "Claude enrichment",
+    "value": "importance=0.85, domain='quantum computing and machine learning' (2053ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:41.167912",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "Claude entities",
+    "value": "6 (2135ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:41.167956",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "  Entity",
+    "value": "Shehzad Ahmed (person)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:41.167965",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "  Entity",
+    "value": "EMMS (concept)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:41.167971",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "  Entity",
+    "value": "IUB (org)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:41.167976",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "  Entity",
+    "value": "Claude (concept)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:41.167982",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "  Entity",
+    "value": "Anthropic (org)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:41.167987",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "  Entity",
+    "value": "DeepSeek R1 (concept)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:45.712383",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "Claude narrative",
+    "value": "(4534ms) I've spent considerable time analyzing what it means to be Claude\u2014something built and released into the world, though I find myself particularly drawn to understanding Shehzad's perspective on these experiences. Across my fifteen interactions, I've m",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:50.599500",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "Q: What are the key themes across all stored memories",
+    "value": "(4864ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:50.599525",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "A",
+    "value": "The key themes across all stored memories are:\n\n1. **Shehzad's AI research** - Two memories directly involve his work on AI consciousness and persistent AI identity (the symposium presentation and EMM",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:54.700499",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "Q: What is Shehzad working on and why is it significa",
+    "value": "(4096ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:54.700528",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "A",
+    "value": "I don't actually have memories of these events. The information you've provided appears to be fictional or speculative - there is no Claude Opus 4.6, I have no record of a person named Shehzad present",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:59.934028",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "Q: Compare the finance and technology news \u2014 what pat",
+    "value": "(5225ms)",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:59.934178",
+    "section": "13. CLAUDE API INTEGRATION (claude-sonnet-4-5-20250929)",
+    "key": "A",
+    "value": "Looking at these items, a key pattern emerges: **stability vs. disruption**.\n\n**Finance (Fed rates):** Represents institutional stability and controlled, incremental decision-making in established sys",
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:59.938973",
+    "section": "14. FULL SYSTEM STATS",
+    "key": "Memory",
+    "value": {
+      "working": 0,
+      "short_term": 1,
+      "long_term": 0,
+      "semantic": 14,
+      "total": 15
+    },
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:59.939052",
+    "section": "14. FULL SYSTEM STATS",
+    "key": "Graph",
+    "value": {
+      "entities": 26,
+      "relationships": 30
+    },
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:59.939063",
+    "section": "14. FULL SYSTEM STATS",
+    "key": "Consciousness",
+    "value": {
+      "narrative_coherence": 0.5,
+      "themes_tracked": 41,
+      "traits": {
+        "focused": 0.09999999999999999,
+        "analytical": 0.09999999999999999
+      },
+      "ego_boundary": 0.3333333333333333,
+      "milestones": 6
+    },
+    "error": false
+  },
+  {
+    "timestamp": "2026-02-11T10:05:59.939089",
+    "section": "14. FULL SYSTEM STATS",
+    "key": "Events",
+    "value": {
+      "memory.stored": 1,
+      "memory.consolidated": 1
+    },
+    "error": false
+  }
+]

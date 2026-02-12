@@ -73,14 +73,23 @@ class HashEmbedder:
                 vec[idx] += math.cos(h * 0.0001)
                 vec[(idx + 1) % self._dim] += math.sin(h * 0.0001)
 
-        # Word-level hashing (captures coarser meaning)
-        for word in text_lower.split():
-            if len(word) < 2:
-                continue
+        # Word-level hashing with multiple projections per word
+        # More projections = better discrimination between documents
+        words = [w for w in text_lower.split() if len(w) >= 2]
+        for word in words:
             h = int(hashlib.sha256(word.encode()).hexdigest(), 16)
+            # 4 projections per word (was 2) for better coverage
+            for offset in (0, 3, 7, 13):
+                idx = (h + offset * 31) % self._dim
+                vec[idx] += 1.0 / (1 + offset * 0.3)
+
+        # Word bigram hashing (captures 2-word phrases)
+        for i in range(len(words) - 1):
+            bigram = f"{words[i]}_{words[i+1]}"
+            h = int(hashlib.md5(bigram.encode()).hexdigest(), 16)
             idx = h % self._dim
-            vec[idx] += 1.0
-            vec[(idx + 7) % self._dim] += 0.5
+            vec[idx] += 0.8
+            vec[(idx + 5) % self._dim] += 0.4
 
         # L2-normalise
         norm = np.linalg.norm(vec)
