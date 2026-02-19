@@ -557,6 +557,63 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "description": "Return a summary of the emotional distribution across all memories: mean/std valence & intensity, histograms, most positive/negative/intense memory IDs.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    # v0.11.0 tools
+    {
+        "name": "emms_dream",
+        "description": "Run a between-session dream consolidation pass: replay important memories, strengthen top-k, weaken neglected ones, prune below threshold, detect patterns.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "description": "Label for the dream report."},
+                "reinforce_top_k": {"type": "integer", "default": 20},
+                "weaken_bottom_k": {"type": "integer", "default": 10},
+                "prune_threshold": {"type": "number", "default": 0.05},
+                "run_dedup": {"type": "boolean", "default": True},
+            },
+        },
+    },
+    {
+        "name": "emms_capture_bridge",
+        "description": "Capture unresolved high-importance threads and session state into a BridgeRecord for the next session.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string"},
+                "closing_summary": {"type": "string", "description": "Optional summary of what this session accomplished."},
+                "max_threads": {"type": "integer", "default": 5},
+            },
+        },
+    },
+    {
+        "name": "emms_inject_bridge",
+        "description": "Generate a prompt-ready markdown context string from a previously captured BridgeRecord. Pass the captured bridge data as 'bridge_json'.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bridge_json": {"type": "string", "description": "JSON-serialized BridgeRecord from emms_capture_bridge."},
+                "new_session_id": {"type": "string"},
+            },
+            "required": ["bridge_json"],
+        },
+    },
+    {
+        "name": "emms_anneal",
+        "description": "Anneal the memory landscape after a session gap: weak memories decay faster, emotional valence stabilizes toward neutral, important survivors strengthened.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "last_session_at": {"type": "number", "description": "Unix timestamp of last session end. Omit to use default half-life."},
+                "half_life_gap": {"type": "number", "default": 259200.0, "description": "Gap in seconds at which temperature=0.5 (default 3 days)."},
+                "decay_rate": {"type": "number", "default": 0.03},
+                "emotional_stabilization_rate": {"type": "number", "default": 0.08},
+            },
+        },
+    },
+    {
+        "name": "emms_bridge_summary",
+        "description": "Show a summary of the current session bridge state (open threads, emotional arc, presence at end).",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -1256,6 +1313,102 @@ class EMCPServer:
             "summary": landscape.summary(),
         }
 
+    def _handle_dream(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.dream(
+            session_id=args.get("session_id"),
+            reinforce_top_k=int(args.get("reinforce_top_k", 20)),
+            weaken_bottom_k=int(args.get("weaken_bottom_k", 10)),
+            prune_threshold=float(args.get("prune_threshold", 0.05)),
+            run_dedup=bool(args.get("run_dedup", True)),
+        )
+        return {
+            "session_id": report.session_id,
+            "total_memories_processed": report.total_memories_processed,
+            "reinforced": report.reinforced,
+            "weakened": report.weakened,
+            "pruned": report.pruned,
+            "deduped_pairs": report.deduped_pairs,
+            "patterns_found": report.patterns_found,
+            "duration_ms": round(report.duration_seconds * 1000, 1),
+            "insights": report.insights[:5],
+            "summary": report.summary(),
+        }
+
+    def _handle_capture_bridge(self, args: dict[str, Any]) -> dict[str, Any]:
+        import json
+        record = self.emms.capture_session_bridge(
+            session_id=args.get("session_id"),
+            closing_summary=str(args.get("closing_summary", "")),
+            max_threads=int(args.get("max_threads", 5)),
+        )
+        return {
+            "from_session_id": record.from_session_id,
+            "open_threads": len(record.open_threads),
+            "dominant_domains": record.dominant_domains,
+            "mean_valence_at_end": round(record.mean_valence_at_end, 4),
+            "presence_score_at_end": round(record.presence_score_at_end, 4),
+            "bridge_json": json.dumps(record.to_dict()),
+            "summary": record.summary(),
+        }
+
+    def _handle_inject_bridge(self, args: dict[str, Any]) -> dict[str, Any]:
+        import json as _json
+        from emms.sessions.bridge import BridgeRecord
+        bridge_json = args.get("bridge_json", "{}")
+        try:
+            record = BridgeRecord.from_dict(_json.loads(bridge_json))
+        except Exception as e:
+            return {"error": f"Could not parse bridge_json: {e}"}
+        injection = self.emms.inject_session_bridge(
+            record,
+            new_session_id=args.get("new_session_id"),
+        )
+        return {
+            "injection": injection,
+            "open_threads": len(record.open_threads),
+            "from_session_id": record.from_session_id,
+        }
+
+    def _handle_anneal(self, args: dict[str, Any]) -> dict[str, Any]:
+        result = self.emms.anneal(
+            last_session_at=args.get("last_session_at"),
+            half_life_gap=float(args.get("half_life_gap", 259200.0)),
+            decay_rate=float(args.get("decay_rate", 0.03)),
+            emotional_stabilization_rate=float(args.get("emotional_stabilization_rate", 0.08)),
+        )
+        return {
+            "total_items": result.total_items,
+            "gap_hours": round(result.gap_seconds / 3600, 2),
+            "effective_temperature": round(result.effective_temperature, 4),
+            "accelerated_decay": result.accelerated_decay,
+            "emotionally_stabilized": result.emotionally_stabilized,
+            "strengthened": result.strengthened,
+            "duration_ms": round(result.duration_seconds * 1000, 1),
+            "summary": result.summary(),
+        }
+
+    def _handle_bridge_summary(self, args: dict[str, Any]) -> dict[str, Any]:
+        # Capture current state without closing
+        record = self.emms.capture_session_bridge(
+            closing_summary="[bridge summary snapshot]",
+        )
+        return {
+            "open_threads": len(record.open_threads),
+            "threads": [
+                {
+                    "domain": t.domain,
+                    "importance": round(t.importance, 3),
+                    "reason": t.reason,
+                    "excerpt": t.content_excerpt[:80],
+                }
+                for t in record.open_threads
+            ],
+            "presence_score": round(record.presence_score_at_end, 4),
+            "mean_valence": round(record.mean_valence_at_end, 4),
+            "dominant_domains": record.dominant_domains,
+            "summary": record.summary(),
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -1299,4 +1452,10 @@ class EMCPServer:
         "emms_presence_metrics": _handle_presence_metrics,
         "emms_affective_retrieve": _handle_affective_retrieve,
         "emms_emotional_landscape": _handle_emotional_landscape,
+        # v0.11.0 tools
+        "emms_dream": _handle_dream,
+        "emms_capture_bridge": _handle_capture_bridge,
+        "emms_inject_bridge": _handle_inject_bridge,
+        "emms_anneal": _handle_anneal,
+        "emms_bridge_summary": _handle_bridge_summary,
     }

@@ -1,5 +1,20 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.11.0: The Sleep Cycle
+- DreamConsolidator: between-session memory processing — replays important memories,
+  strengthens top-k, weakens neglected ones, prunes below threshold, runs dedup and pattern
+  detection; produces DreamReport with insights; EMMS.dream() facade
+- SessionBridge: session-to-session context handoff — captures unresolved high-importance
+  threads, emotional arc, presence score at session end; inject() generates prompt-ready
+  markdown for next session opening; save/load persistence; EMMS.capture_session_bridge(),
+  inject_session_bridge() facades
+- MemoryAnnealer: temporal memory annealing — models how time changes the memory landscape;
+  temperature = 1/(1+gap/half_life); weak memories decay faster, emotional valence stabilizes
+  toward neutral, important survivors strengthened; EMMS.anneal() facade
+- MCP tools (5 new): emms_dream, emms_capture_bridge, emms_inject_bridge,
+  emms_anneal, emms_bridge_summary (42 total)
+- CLI commands (5 new): dream, capture-bridge, inject-bridge, anneal, bridge-summary (46 total)
+
 v0.10.0: The Affective Layer
 - ReconsolidationEngine: biological memory reconsolidation — recalled memories are
   strengthened/weakened/valence-drifted with diminishing-returns attenuation
@@ -166,10 +181,13 @@ from emms.retrieval.planner import MemoryQueryPlanner, QueryPlan, SubQueryResult
 from emms.memory.reconsolidation import ReconsolidationEngine, ReconsolidationResult, ReconsolidationReport
 from emms.sessions.presence import PresenceTracker, PresenceMetrics, PresenceTurn
 from emms.retrieval.affective import AffectiveRetriever, AffectiveResult, EmotionalLandscape
+from emms.memory.dream import DreamConsolidator, DreamReport, DreamEntry
+from emms.sessions.bridge import SessionBridge, BridgeRecord, BridgeThread
+from emms.memory.annealing import MemoryAnnealer, AnnealingResult
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 __all__ = [
     # Core
     "EMMS",
@@ -287,4 +305,13 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.11.0 additions
+    "DreamConsolidator",
+    "DreamReport",
+    "DreamEntry",
+    "SessionBridge",
+    "BridgeRecord",
+    "BridgeThread",
+    "MemoryAnnealer",
+    "AnnealingResult",
 ]

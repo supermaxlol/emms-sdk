@@ -4,6 +4,22 @@ All notable changes to the Enhanced Memory Management System are documented here
 
 ---
 
+## [0.11.0] — 2026-02-20
+
+### Added
+- **`DreamConsolidator`** + **`DreamReport`** + **`DreamEntry`** (`memory/dream.py`) — between-session memory consolidation: samples top-k memories via ExperienceReplay, strengthens them with ReconsolidationEngine, weakens neglected bottom-k, prunes below strength threshold, runs optional SemanticDeduplicator + PatternDetector passes, produces DreamReport with insights; emits `memory.dream_completed` event; `EMMS.dream()` façade
+- **`SessionBridge`** + **`BridgeRecord`** + **`BridgeThread`** (`sessions/bridge.py`) — session-to-session context handoff: `capture()` identifies unresolved high-importance memories (low consolidation_score), records emotional arc, presence score, dominant domains; `inject()` generates prompt-ready markdown context for next session opening; `save()`/`load()` JSON persistence; `EMMS.capture_session_bridge()`, `inject_session_bridge()` façades
+- **`MemoryAnnealer`** + **`AnnealingResult`** (`memory/annealing.py`) — temporal memory annealing after session gaps; temperature model `T = 1/(1+gap/half_life)` (high T = recent/plastic, low T = old/stable); accelerated decay for weak/unimportant memories; emotional valence stabilisation toward neutral; strengthening of high-importance survivors; `EMMS.anneal(last_session_at)` façade
+- **CLI commands** (5 new, 46 total): `dream`, `capture-bridge`, `inject-bridge`, `anneal`, `bridge-summary`
+- **MCP tools** (5 new, 42 total): `emms_dream`, `emms_capture_bridge`, `emms_inject_bridge`, `emms_anneal`, `emms_bridge_summary`
+- 80 new tests in `tests/test_v110_features.py`; total: **1074 passed, 2 skipped**
+
+### Changed
+- `__version__` bumped to `0.11.0`
+- Updated legacy version-pinned tests for new tool count (42) and version (0.11.0)
+
+---
+
 ## [0.10.0] — 2026-02-20
 
 ### Added

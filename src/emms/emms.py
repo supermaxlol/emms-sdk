@@ -1868,3 +1868,140 @@ class EMMS:
         from emms.retrieval.affective import AffectiveRetriever
         retriever = AffectiveRetriever(self.memory)
         return retriever.emotional_landscape()
+
+    # ------------------------------------------------------------------
+    # DreamConsolidator (v0.11.0)
+    # ------------------------------------------------------------------
+
+    def dream(
+        self,
+        session_id: str | None = None,
+        reinforce_top_k: int = 20,
+        weaken_bottom_k: int = 10,
+        prune_threshold: float = 0.05,
+        run_dedup: bool = True,
+        run_patterns: bool = True,
+    ) -> "Any":
+        """Run a between-session dream consolidation pass.
+
+        Replays high-priority memories (ExperienceReplay), applies
+        ReconsolidationEngine to strengthen important ones and weaken
+        neglected ones, optionally runs deduplication and pattern detection,
+        and prunes memories below strength threshold.
+
+        Call this at the end of a session or before starting a new one.
+
+        Args:
+            session_id: Label for the dream report.
+            reinforce_top_k: Number of top-priority memories to reinforce.
+            weaken_bottom_k: Number of low-priority memories to weaken.
+            prune_threshold: Memories with strength < this are pruned.
+            run_dedup: Run SemanticDeduplicator pass (default True).
+            run_patterns: Run PatternDetector pass (default True).
+
+        Returns:
+            DreamReport with consolidation statistics and insights.
+        """
+        from emms.memory.dream import DreamConsolidator
+        consolidator = DreamConsolidator(
+            memory=self.memory,
+            reinforce_top_k=reinforce_top_k,
+            weaken_bottom_k=weaken_bottom_k,
+            prune_threshold=prune_threshold,
+            run_dedup=run_dedup,
+            run_patterns=run_patterns,
+        )
+        report = consolidator.dream(session_id=session_id)
+        self.events.emit("memory.dream_completed", {
+            "session_id": report.session_id,
+            "reinforced": report.reinforced,
+            "pruned": report.pruned,
+        })
+        return report
+
+    # ------------------------------------------------------------------
+    # SessionBridge (v0.11.0)
+    # ------------------------------------------------------------------
+
+    def capture_session_bridge(
+        self,
+        session_id: str | None = None,
+        closing_summary: str = "",
+        max_threads: int = 5,
+    ) -> "Any":
+        """Capture unresolved threads and session state for the next session.
+
+        Returns a BridgeRecord that can be persisted and injected at the
+        start of the next session via inject_session_bridge().
+
+        Args:
+            session_id: The ending session's ID.
+            closing_summary: Optional free-text summary of the session.
+            max_threads: Maximum number of unresolved threads to carry forward.
+
+        Returns:
+            BridgeRecord.
+        """
+        from emms.sessions.bridge import SessionBridge
+        bridge = SessionBridge(
+            memory=self.memory,
+            presence_tracker=getattr(self, "_presence_tracker", None),
+            max_threads=max_threads,
+        )
+        return bridge.capture(session_id=session_id, closing_summary=closing_summary)
+
+    def inject_session_bridge(
+        self,
+        record: "Any",
+        new_session_id: str | None = None,
+    ) -> str:
+        """Generate a context string from a BridgeRecord for session opening.
+
+        Args:
+            record: A BridgeRecord from capture_session_bridge().
+            new_session_id: ID for the new session.
+
+        Returns:
+            str — prompt-ready markdown context injection.
+        """
+        from emms.sessions.bridge import SessionBridge
+        bridge = SessionBridge(memory=self.memory)
+        return bridge.inject(record, new_session_id=new_session_id)
+
+    # ------------------------------------------------------------------
+    # MemoryAnnealer (v0.11.0)
+    # ------------------------------------------------------------------
+
+    def anneal(
+        self,
+        last_session_at: float | None = None,
+        half_life_gap: float = 259_200.0,
+        decay_rate: float = 0.03,
+        emotional_stabilization_rate: float = 0.08,
+    ) -> "Any":
+        """Anneal the memory landscape after a session gap.
+
+        Models how time changes memory: weak ones decay faster, emotional
+        charges stabilise toward neutral, important survivors are mildly
+        strengthened.
+
+        Args:
+            last_session_at: Unix timestamp of last session end.
+                If None, assumes half_life_gap has passed.
+            half_life_gap: Gap in seconds at which temperature = 0.5
+                (default 3 days = 259200s).
+            decay_rate: Base decay per item per pass (default 0.03).
+            emotional_stabilization_rate: Rate of valence drift toward 0
+                (default 0.08).
+
+        Returns:
+            AnnealingResult with change counts and temperature.
+        """
+        from emms.memory.annealing import MemoryAnnealer
+        annealer = MemoryAnnealer(
+            memory=self.memory,
+            half_life_gap=half_life_gap,
+            decay_rate=decay_rate,
+            emotional_stabilization_rate=emotional_stabilization_rate,
+        )
+        return annealer.anneal(last_session_at=last_session_at)

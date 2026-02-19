@@ -808,6 +808,118 @@ def cmd_affective_retrieve(args: argparse.Namespace) -> None:
                   f"v={v:+.2f} i={i:.2f}  {r.memory.experience.content[:80]}")
 
 
+def cmd_dream(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.dream(
+        session_id=getattr(args, "session_id", None),
+        reinforce_top_k=getattr(args, "reinforce_top_k", 20),
+        weaken_bottom_k=getattr(args, "weaken_bottom_k", 10),
+        prune_threshold=getattr(args, "prune_threshold", 0.05),
+        run_dedup=not getattr(args, "no_dedup", False),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "session_id": report.session_id,
+            "total": report.total_memories_processed,
+            "reinforced": report.reinforced,
+            "weakened": report.weakened,
+            "pruned": report.pruned,
+            "deduped_pairs": report.deduped_pairs,
+            "patterns_found": report.patterns_found,
+            "insights": report.insights,
+        }))
+    else:
+        print(report.summary())
+    if args.memory:
+        agent.save(args.memory)
+
+
+def cmd_capture_bridge(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    record = agent.capture_session_bridge(
+        session_id=getattr(args, "session_id", None),
+        closing_summary=getattr(args, "summary", "") or "",
+        max_threads=getattr(args, "max_threads", 5),
+    )
+    output_path = getattr(args, "output", None)
+    if output_path:
+        from emms.sessions.bridge import SessionBridge
+        bridge = SessionBridge(memory=agent.memory)
+        bridge.save(output_path, record)
+        print(f"Bridge saved to {output_path}")
+    if getattr(args, "json", False):
+        print(json.dumps(record.to_dict()))
+    else:
+        print(record.summary())
+
+
+def cmd_inject_bridge(args: argparse.Namespace) -> None:
+    from emms.sessions.bridge import SessionBridge
+    bridge_path = getattr(args, "bridge_file", None)
+    if not bridge_path:
+        print("Error: --bridge-file required.")
+        return
+    record = SessionBridge.load(bridge_path)
+    if record is None:
+        print(f"Error: Could not load bridge from {bridge_path}")
+        return
+    agent = _get_emms(args.memory)
+    injection = agent.inject_session_bridge(
+        record,
+        new_session_id=getattr(args, "session_id", None),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({"injection": injection, "open_threads": len(record.open_threads)}))
+    else:
+        print(injection)
+
+
+def cmd_anneal(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    last_at = getattr(args, "last_session_at", None)
+    result = agent.anneal(
+        last_session_at=float(last_at) if last_at else None,
+        half_life_gap=getattr(args, "half_life_gap", 259200.0),
+        decay_rate=getattr(args, "decay_rate", 0.03),
+        emotional_stabilization_rate=getattr(args, "emotional_stabilization_rate", 0.08),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_items": result.total_items,
+            "gap_hours": round(result.gap_seconds / 3600, 2),
+            "effective_temperature": round(result.effective_temperature, 4),
+            "accelerated_decay": result.accelerated_decay,
+            "emotionally_stabilized": result.emotionally_stabilized,
+            "strengthened": result.strengthened,
+        }))
+    else:
+        print(result.summary())
+    if args.memory:
+        agent.save(args.memory)
+
+
+def cmd_bridge_summary(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    record = agent.capture_session_bridge()
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "open_threads": len(record.open_threads),
+            "threads": [
+                {"domain": t.domain, "importance": round(t.importance, 3),
+                 "reason": t.reason, "excerpt": t.content_excerpt[:80]}
+                for t in record.open_threads
+            ],
+            "mean_valence": round(record.mean_valence_at_end, 4),
+            "dominant_domains": record.dominant_domains,
+        }))
+    else:
+        print(record.summary())
+        if record.open_threads:
+            print(f"\nOpen threads ({len(record.open_threads)}):")
+            for i, t in enumerate(record.open_threads, 1):
+                print(f"  {i}. [{t.domain}] imp={t.importance:.2f}  {t.content_excerpt[:70]}")
+
+
 def cmd_emotional_landscape(args: argparse.Namespace) -> None:
     agent = _get_emms(args.memory)
     landscape = agent.emotional_landscape()
@@ -1140,6 +1252,55 @@ def build_parser() -> argparse.ArgumentParser:
     p_el = sub.add_parser("emotional-landscape",
                            help="Summarise emotional distribution across all memories.")
     p_el.set_defaults(func=cmd_emotional_landscape)
+
+    # v0.11.0 commands
+
+    # dream
+    p_dr = sub.add_parser("dream",
+                           help="Run between-session dream consolidation (replay, strengthen, prune).")
+    p_dr.add_argument("--session-id", default=None, dest="session_id")
+    p_dr.add_argument("--reinforce-top-k", type=int, default=20, dest="reinforce_top_k")
+    p_dr.add_argument("--weaken-bottom-k", type=int, default=10, dest="weaken_bottom_k")
+    p_dr.add_argument("--prune-threshold", type=float, default=0.05, dest="prune_threshold")
+    p_dr.add_argument("--no-dedup", action="store_true", dest="no_dedup",
+                      help="Skip deduplication pass.")
+    p_dr.set_defaults(func=cmd_dream)
+
+    # capture-bridge
+    p_cb = sub.add_parser("capture-bridge",
+                           help="Capture unresolved session threads as a BridgeRecord.")
+    p_cb.add_argument("--session-id", default=None, dest="session_id")
+    p_cb.add_argument("--summary", default="", help="Closing summary of this session.")
+    p_cb.add_argument("--max-threads", type=int, default=5, dest="max_threads")
+    p_cb.add_argument("--output", "-o", default=None,
+                      help="Save bridge JSON to this file.")
+    p_cb.set_defaults(func=cmd_capture_bridge)
+
+    # inject-bridge
+    p_ib = sub.add_parser("inject-bridge",
+                           help="Generate context injection from a saved BridgeRecord.")
+    p_ib.add_argument("--bridge-file", "-b", default=None, dest="bridge_file",
+                      help="Path to bridge JSON file (from capture-bridge --output).")
+    p_ib.add_argument("--session-id", default=None, dest="session_id",
+                      help="New session ID.")
+    p_ib.set_defaults(func=cmd_inject_bridge)
+
+    # anneal
+    p_an = sub.add_parser("anneal",
+                           help="Anneal memory after a session gap (temporal decay + valence stabilization).")
+    p_an.add_argument("--last-session-at", type=float, default=None, dest="last_session_at",
+                      help="Unix timestamp of last session end.")
+    p_an.add_argument("--half-life-gap", type=float, default=259200.0, dest="half_life_gap",
+                      help="Gap in seconds at which temperature=0.5 (default 3 days).")
+    p_an.add_argument("--decay-rate", type=float, default=0.03, dest="decay_rate")
+    p_an.add_argument("--emotional-stabilization-rate", type=float, default=0.08,
+                      dest="emotional_stabilization_rate")
+    p_an.set_defaults(func=cmd_anneal)
+
+    # bridge-summary
+    p_bs2 = sub.add_parser("bridge-summary",
+                            help="Show current session's unresolved threads (bridge preview).")
+    p_bs2.set_defaults(func=cmd_bridge_summary)
 
     return parser
 
