@@ -1658,3 +1658,213 @@ class EMMS:
             embedder=self.embedder,
         )
         return planner.plan_retrieve_simple(query)
+
+    # ------------------------------------------------------------------
+    # ReconsolidationEngine (v0.10.0)
+    # ------------------------------------------------------------------
+
+    def reconsolidate(
+        self,
+        memory_id: str,
+        context_valence: float | None = None,
+        reinforce: bool = True,
+    ) -> "Any":
+        """Reconsolidate a single memory after recall.
+
+        Strengthens or weakens the memory and optionally drifts its
+        emotional valence toward the current context.
+
+        Args:
+            memory_id: The MemoryItem ID to reconsolidate.
+            context_valence: Emotional valence of the recall context (-1…+1).
+            reinforce: True → strengthen (confirming recall); False → weaken.
+
+        Returns:
+            ReconsolidationResult with before/after values.
+        """
+        from emms.memory.reconsolidation import ReconsolidationEngine
+        item = self.get_memory_by_id(memory_id)
+        if item is None:
+            raise KeyError(f"Memory not found: {memory_id!r}")
+        engine = ReconsolidationEngine()
+        return engine.reconsolidate(item, context_valence=context_valence, reinforce=reinforce)
+
+    def batch_reconsolidate(
+        self,
+        memory_ids: "list[str]",
+        context_valence: float | None = None,
+        reinforce: bool = True,
+    ) -> "Any":
+        """Reconsolidate a batch of recently-recalled memories.
+
+        Useful after a retrieval round — pass retrieved item IDs to update
+        their reconsolidation state.
+
+        Returns:
+            ReconsolidationReport summarising changes across the batch.
+        """
+        from emms.memory.reconsolidation import ReconsolidationEngine
+        engine = ReconsolidationEngine()
+        items = [self.get_memory_by_id(mid) for mid in memory_ids]
+        items = [it for it in items if it is not None]
+        return engine.batch_reconsolidate(
+            items, context_valence=context_valence, reinforce=reinforce
+        )
+
+    def decay_unrecalled(
+        self,
+        decay_factor: float = 0.02,
+        min_age_seconds: float = 3600.0,
+    ) -> "Any":
+        """Apply passive decay to memories that have not been recalled recently.
+
+        Args:
+            decay_factor: Absolute strength reduction per call (default 0.02).
+            min_age_seconds: Items accessed more recently than this are skipped.
+
+        Returns:
+            ReconsolidationReport summarising which items were decayed.
+        """
+        from emms.memory.reconsolidation import ReconsolidationEngine
+        engine = ReconsolidationEngine()
+        all_items: list[MemoryItem] = []
+        for tier in (self.memory.working, self.memory.short_term):
+            all_items.extend(tier)
+        for tier in (self.memory.long_term, self.memory.semantic):
+            all_items.extend(tier.values())
+        return engine.decay_unrecalled(
+            all_items, decay_factor=decay_factor, min_age_seconds=min_age_seconds
+        )
+
+    # ------------------------------------------------------------------
+    # PresenceTracker (v0.10.0)
+    # ------------------------------------------------------------------
+
+    def enable_presence_tracking(
+        self,
+        session_id: str | None = None,
+        attention_half_life: int = 20,
+        decay_gamma: float = 1.5,
+        budget_horizon: int = 50,
+        degrading_threshold: float = 0.4,
+    ) -> "Any":
+        """Initialise a PresenceTracker for this session.
+
+        Returns:
+            PresenceTracker instance (also stored as self._presence_tracker).
+        """
+        from emms.sessions.presence import PresenceTracker
+        self._presence_tracker: "Any" = PresenceTracker(
+            session_id=session_id,
+            attention_half_life=attention_half_life,
+            decay_gamma=decay_gamma,
+            budget_horizon=budget_horizon,
+            degrading_threshold=degrading_threshold,
+        )
+        return self._presence_tracker
+
+    def record_presence_turn(
+        self,
+        content: str = "",
+        domain: str = "general",
+        valence: float = 0.0,
+        intensity: float = 0.0,
+    ) -> "Any":
+        """Record a turn against the active PresenceTracker.
+
+        Returns:
+            PresenceMetrics snapshot after recording the turn.
+
+        Raises:
+            RuntimeError if presence tracking has not been enabled.
+        """
+        tracker = getattr(self, "_presence_tracker", None)
+        if tracker is None:
+            raise RuntimeError(
+                "Call enable_presence_tracking() before record_presence_turn()."
+            )
+        return tracker.record_turn(
+            content=content, domain=domain, valence=valence, intensity=intensity
+        )
+
+    def presence_metrics(self) -> "Any":
+        """Return current PresenceMetrics.
+
+        Raises:
+            RuntimeError if presence tracking has not been enabled.
+        """
+        tracker = getattr(self, "_presence_tracker", None)
+        if tracker is None:
+            raise RuntimeError(
+                "Call enable_presence_tracking() before presence_metrics()."
+            )
+        return tracker.get_metrics()
+
+    # ------------------------------------------------------------------
+    # AffectiveRetriever (v0.10.0)
+    # ------------------------------------------------------------------
+
+    def affective_retrieve(
+        self,
+        query: str = "",
+        target_valence: float | None = None,
+        target_intensity: float | None = None,
+        max_results: int = 10,
+        semantic_blend: float = 0.4,
+    ) -> "list[Any]":
+        """Retrieve memories by emotional proximity.
+
+        Finds memories whose emotional signature (valence + intensity) is
+        closest to the target state.  Optionally blends semantic (BM25)
+        matching when a query string is provided.
+
+        Args:
+            query: Optional semantic query (BM25 blend).
+            target_valence: Target emotional valence (-1…+1).
+            target_intensity: Target emotional intensity (0…1).
+            max_results: Maximum results.
+            semantic_blend: Weight of semantic score [0, 1] (default 0.4).
+
+        Returns:
+            list[AffectiveResult] sorted by score descending.
+        """
+        from emms.retrieval.affective import AffectiveRetriever
+        retriever = AffectiveRetriever(self.memory, semantic_blend=semantic_blend)
+        return retriever.retrieve(
+            query=query,
+            target_valence=target_valence,
+            target_intensity=target_intensity,
+            max_results=max_results,
+        )
+
+    def affective_retrieve_similar(
+        self,
+        reference_memory_id: str,
+        max_results: int = 10,
+    ) -> "list[Any]":
+        """Retrieve memories with emotional signature similar to a reference.
+
+        Args:
+            reference_memory_id: MemoryItem ID of the reference memory.
+            max_results: Maximum results (reference excluded).
+
+        Returns:
+            list[AffectiveResult] sorted by emotional proximity.
+        """
+        from emms.retrieval.affective import AffectiveRetriever
+        retriever = AffectiveRetriever(self.memory)
+        return retriever.retrieve_similar_feeling(
+            reference_memory_id=reference_memory_id,
+            max_results=max_results,
+        )
+
+    def emotional_landscape(self) -> "Any":
+        """Return EmotionalLandscape summarising the emotional distribution of all memories.
+
+        Returns:
+            EmotionalLandscape with mean/std valence & intensity, histograms,
+            and the IDs of the most positive, most negative, and most intense memories.
+        """
+        from emms.retrieval.affective import AffectiveRetriever
+        retriever = AffectiveRetriever(self.memory)
+        return retriever.emotional_landscape()

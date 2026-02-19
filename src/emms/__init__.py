@@ -1,5 +1,20 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.10.0: The Affective Layer
+- ReconsolidationEngine: biological memory reconsolidation — recalled memories are
+  strengthened/weakened/valence-drifted with diminishing-returns attenuation
+- PresenceTracker: models the finite attentional window of a session; coherence decays
+  over turns via a half-life sigmoid; tracks emotional arc and dominant domains
+- AffectiveRetriever: retrieve memories by emotional proximity (valence + intensity);
+  supports retrieve_similar_feeling() and emotional_landscape()
+- EMMS facade: reconsolidate, batch_reconsolidate, decay_unrecalled,
+  enable_presence_tracking, record_presence_turn, presence_metrics,
+  affective_retrieve, affective_retrieve_similar, emotional_landscape
+- MCP tools (5 new): emms_reconsolidate, emms_batch_reconsolidate, emms_presence_metrics,
+  emms_affective_retrieve, emms_emotional_landscape (37 total)
+- CLI commands (6 new): reconsolidate, decay-unrecalled, presence, presence-arc,
+  affective-retrieve, emotional-landscape (41 total)
+
 v0.9.0: Scalability & federation layer
 - CompactionIndex: O(1) dual-hash lookup by id, experience_id, content_hash; auto-wired in EMMS.store()
 - GraphCommunityDetection: Label Propagation Algorithm for topic cluster discovery; modularity Q
@@ -148,10 +163,13 @@ from emms.memory.communities import GraphCommunityDetector, Community, Community
 from emms.memory.replay import ExperienceReplay, ReplayEntry, ReplayBatch
 from emms.storage.federation import MemoryFederation, FederationResult, ConflictEntry, ConflictPolicy
 from emms.retrieval.planner import MemoryQueryPlanner, QueryPlan, SubQueryResult
+from emms.memory.reconsolidation import ReconsolidationEngine, ReconsolidationResult, ReconsolidationReport
+from emms.sessions.presence import PresenceTracker, PresenceMetrics, PresenceTurn
+from emms.retrieval.affective import AffectiveRetriever, AffectiveResult, EmotionalLandscape
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 __all__ = [
     # Core
     "EMMS",
@@ -259,4 +277,14 @@ __all__ = [
     "MemoryQueryPlanner",
     "QueryPlan",
     "SubQueryResult",
+    # v0.10.0 additions
+    "ReconsolidationEngine",
+    "ReconsolidationResult",
+    "ReconsolidationReport",
+    "PresenceTracker",
+    "PresenceMetrics",
+    "PresenceTurn",
+    "AffectiveRetriever",
+    "AffectiveResult",
+    "EmotionalLandscape",
 ]

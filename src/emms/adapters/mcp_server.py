@@ -497,6 +497,66 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["query"],
         },
     },
+    # v0.10.0 tools
+    {
+        "name": "emms_reconsolidate",
+        "description": "Reconsolidate a recalled memory — strengthen/weaken it and optionally drift its emotional valence toward the current context valence.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "MemoryItem ID to reconsolidate."},
+                "context_valence": {"type": "number", "description": "Emotional valence of recall context (-1..+1). Omit to skip valence drift."},
+                "reinforce": {"type": "boolean", "default": True, "description": "True=strengthen (confirming recall); False=weaken."},
+            },
+            "required": ["memory_id"],
+        },
+    },
+    {
+        "name": "emms_batch_reconsolidate",
+        "description": "Reconsolidate a batch of recently-recalled memories. Pass all retrieved IDs after a retrieval round.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "memory_ids": {"type": "array", "items": {"type": "string"}, "description": "List of MemoryItem IDs."},
+                "context_valence": {"type": "number", "description": "Emotional valence of current context (-1..+1)."},
+                "reinforce": {"type": "boolean", "default": True},
+            },
+            "required": ["memory_ids"],
+        },
+    },
+    {
+        "name": "emms_presence_metrics",
+        "description": "Return current session presence metrics (presence score, attention budget, coherence trend, emotional arc).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "record_turn": {"type": "boolean", "default": False, "description": "If true, record a new turn before returning metrics."},
+                "content": {"type": "string", "description": "Turn content (used when record_turn=true)."},
+                "domain": {"type": "string", "default": "general"},
+                "valence": {"type": "number", "default": 0.0},
+                "intensity": {"type": "number", "default": 0.0},
+            },
+        },
+    },
+    {
+        "name": "emms_affective_retrieve",
+        "description": "Retrieve memories by emotional proximity. Find memories whose valence/intensity is closest to a target emotional state.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "default": "", "description": "Optional semantic query to blend with emotional proximity."},
+                "target_valence": {"type": "number", "description": "Target emotional valence (-1..+1)."},
+                "target_intensity": {"type": "number", "description": "Target emotional intensity (0..1)."},
+                "max_results": {"type": "integer", "default": 10},
+                "semantic_blend": {"type": "number", "default": 0.4, "description": "Weight of semantic score [0,1]."},
+            },
+        },
+    },
+    {
+        "name": "emms_emotional_landscape",
+        "description": "Return a summary of the emotional distribution across all memories: mean/std valence & intensity, histograms, most positive/negative/intense memory IDs.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -1085,6 +1145,117 @@ class EMCPServer:
             ],
         }
 
+    def _handle_reconsolidate(self, args: dict[str, Any]) -> dict[str, Any]:
+        memory_id = args["memory_id"]
+        context_valence = args.get("context_valence")
+        reinforce = bool(args.get("reinforce", True))
+        result = self.emms.reconsolidate(
+            memory_id=memory_id,
+            context_valence=context_valence,
+            reinforce=reinforce,
+        )
+        return {
+            "memory_id": result.memory_id,
+            "type": result.reconsolidation_type,
+            "old_strength": round(result.old_strength, 4),
+            "new_strength": round(result.new_strength, 4),
+            "delta_strength": round(result.delta_strength, 4),
+            "old_valence": round(result.old_valence, 4),
+            "new_valence": round(result.new_valence, 4),
+            "delta_valence": round(result.delta_valence, 4),
+            "recall_count": result.recall_count_after,
+            "summary": result.summary(),
+        }
+
+    def _handle_batch_reconsolidate(self, args: dict[str, Any]) -> dict[str, Any]:
+        memory_ids = args["memory_ids"]
+        context_valence = args.get("context_valence")
+        reinforce = bool(args.get("reinforce", True))
+        report = self.emms.batch_reconsolidate(
+            memory_ids=memory_ids,
+            context_valence=context_valence,
+            reinforce=reinforce,
+        )
+        return {
+            "total_items": report.total_items,
+            "reinforced": report.reinforced,
+            "weakened": report.weakened,
+            "valence_drifted": report.valence_drifted,
+            "unchanged": report.unchanged,
+            "mean_delta_strength": round(report.mean_delta_strength, 4),
+            "mean_delta_valence": round(report.mean_delta_valence, 4),
+            "summary": report.summary(),
+        }
+
+    def _handle_presence_metrics(self, args: dict[str, Any]) -> dict[str, Any]:
+        tracker = getattr(self.emms, "_presence_tracker", None)
+        if tracker is None:
+            self.emms.enable_presence_tracking()
+            tracker = self.emms._presence_tracker
+        if args.get("record_turn"):
+            metrics = self.emms.record_presence_turn(
+                content=str(args.get("content", "")),
+                domain=str(args.get("domain", "general")),
+                valence=float(args.get("valence", 0.0)),
+                intensity=float(args.get("intensity", 0.0)),
+            )
+        else:
+            metrics = self.emms.presence_metrics()
+        return {
+            "session_id": metrics.session_id,
+            "turn_count": metrics.turn_count,
+            "presence_score": round(metrics.presence_score, 4),
+            "attention_budget_remaining": round(metrics.attention_budget_remaining, 4),
+            "coherence_trend": metrics.coherence_trend,
+            "is_degrading": metrics.is_degrading,
+            "dominant_domains": metrics.dominant_domains,
+            "mean_valence": round(metrics.mean_valence, 4),
+            "mean_intensity": round(metrics.mean_intensity, 4),
+            "emotional_arc_length": len(metrics.emotional_arc),
+            "summary": metrics.summary(),
+        }
+
+    def _handle_affective_retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
+        results = self.emms.affective_retrieve(
+            query=str(args.get("query", "")),
+            target_valence=args.get("target_valence"),
+            target_intensity=args.get("target_intensity"),
+            max_results=int(args.get("max_results", 10)),
+            semantic_blend=float(args.get("semantic_blend", 0.4)),
+        )
+        return {
+            "count": len(results),
+            "results": [
+                {
+                    "id": r.memory.id,
+                    "content": r.memory.experience.content[:120],
+                    "score": round(r.score, 4),
+                    "emotional_proximity": round(r.emotional_proximity, 4),
+                    "valence": round(r.memory.experience.emotional_valence, 3),
+                    "intensity": round(r.memory.experience.emotional_intensity, 3),
+                    "valence_distance": round(r.valence_distance, 4),
+                    "intensity_distance": round(r.intensity_distance, 4),
+                }
+                for r in results
+            ],
+        }
+
+    def _handle_emotional_landscape(self, args: dict[str, Any]) -> dict[str, Any]:
+        landscape = self.emms.emotional_landscape()
+        return {
+            "total_memories": landscape.total_memories,
+            "mean_valence": round(landscape.mean_valence, 4),
+            "mean_intensity": round(landscape.mean_intensity, 4),
+            "valence_std": round(landscape.valence_std, 4),
+            "intensity_std": round(landscape.intensity_std, 4),
+            "valence_histogram": landscape.valence_histogram,
+            "intensity_histogram": landscape.intensity_histogram,
+            "most_positive": landscape.most_positive,
+            "most_negative": landscape.most_negative,
+            "most_intense": landscape.most_intense,
+            "summary": landscape.summary(),
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -1122,4 +1293,10 @@ class EMCPServer:
         "emms_replay_sample": _handle_replay_sample,
         "emms_merge_from": _handle_merge_from,
         "emms_plan_retrieve": _handle_plan_retrieve,
+        # v0.10.0 tools
+        "emms_reconsolidate": _handle_reconsolidate,
+        "emms_batch_reconsolidate": _handle_batch_reconsolidate,
+        "emms_presence_metrics": _handle_presence_metrics,
+        "emms_affective_retrieve": _handle_affective_retrieve,
+        "emms_emotional_landscape": _handle_emotional_landscape,
     }

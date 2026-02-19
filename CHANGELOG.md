@@ -4,6 +4,23 @@ All notable changes to the Enhanced Memory Management System are documented here
 
 ---
 
+## [0.10.0] — 2026-02-20
+
+### Added
+- **`ReconsolidationEngine`** + **`ReconsolidationResult`** + **`ReconsolidationReport`** (`memory/reconsolidation.py`) — biological memory reconsolidation: recalled memories enter a labile state and re-stabilise with altered strength and emotional valence; `reinforce` mode (confirming recall) increases strength; `weaken` mode (contradicting recall) decreases strength; `valence_drift` nudges stored valence toward the recall context's valence; diminishing-returns attenuation via `1/log(1 + access_count * base)`; `batch_reconsolidate()` for post-retrieval bulk update; `decay_unrecalled()` for passive strength decay of stale memories; `EMMS.reconsolidate()`, `batch_reconsolidate()`, `decay_unrecalled()` façades
+- **`PresenceTracker`** + **`PresenceMetrics`** + **`PresenceTurn`** (`sessions/presence.py`) — models the finite attentional window of a session; presence decays via half-life sigmoid `1/(1+(t/half_life)^γ)`; tracks `presence_score`, `attention_budget_remaining`, `coherence_trend` (stable/degrading/recovering), per-turn `emotional_arc`, `dominant_domains`, `mean_valence`/`mean_intensity`; `is_degrading` flag when below configurable threshold; `EMMS.enable_presence_tracking()`, `record_presence_turn()`, `presence_metrics()` façades
+- **`AffectiveRetriever`** + **`AffectiveResult`** + **`EmotionalLandscape`** (`retrieval/affective.py`) — retrieval by emotional proximity using `Experience.emotional_valence` and `Experience.emotional_intensity`; proximity = `1 - sqrt((v_diff² + i_diff²)/2)`; optional BM25 semantic blend (`semantic_blend` weight); `retrieve_similar_feeling(reference_id)` finds memories emotionally near a reference; `emotional_landscape()` returns distribution summary (mean/std, valence/intensity histograms, most positive/negative/intense IDs); `EMMS.affective_retrieve()`, `affective_retrieve_similar()`, `emotional_landscape()` façades
+- **CLI commands** (6 new, 41 total): `reconsolidate`, `decay-unrecalled`, `presence`, `presence-arc`, `affective-retrieve`, `emotional-landscape`
+- **MCP tools** (5 new, 37 total): `emms_reconsolidate`, `emms_batch_reconsolidate`, `emms_presence_metrics`, `emms_affective_retrieve`, `emms_emotional_landscape`
+- 82 new tests in `tests/test_v100_features.py`; total: **994 passed, 2 skipped**
+
+### Changed
+- `__version__` bumped to `0.10.0`
+- `EMMS.enable_presence_tracking()` now accepts `budget_horizon` and `degrading_threshold` params
+- Updated legacy version-pinned tests for new tool count (37) and version (0.10.0)
+
+---
+
 ## [0.9.0] — 2026-02-20
 
 ### Added

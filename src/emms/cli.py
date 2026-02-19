@@ -687,6 +687,147 @@ def cmd_plan_retrieve(args: argparse.Namespace) -> None:
             print("No results found.")
 
 
+def cmd_reconsolidate(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    ctx_v = getattr(args, "context_valence", None)
+    reinforce = not getattr(args, "weaken", False)
+    result = agent.reconsolidate(
+        memory_id=args.memory_id,
+        context_valence=ctx_v,
+        reinforce=reinforce,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "memory_id": result.memory_id,
+            "type": result.reconsolidation_type,
+            "old_strength": round(result.old_strength, 4),
+            "new_strength": round(result.new_strength, 4),
+            "delta_strength": round(result.delta_strength, 4),
+            "old_valence": round(result.old_valence, 4),
+            "new_valence": round(result.new_valence, 4),
+        }))
+    else:
+        print(result.summary())
+
+
+def cmd_decay_unrecalled(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.decay_unrecalled(
+        decay_factor=getattr(args, "decay_factor", 0.02),
+        min_age_seconds=getattr(args, "min_age", 3600.0),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_items": report.total_items,
+            "weakened": report.weakened,
+            "unchanged": report.unchanged,
+            "mean_delta_strength": round(report.mean_delta_strength, 4),
+        }))
+    else:
+        print(report.summary())
+    if args.memory:
+        agent.save(args.memory)
+
+
+def cmd_presence(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    if not hasattr(agent, "_presence_tracker") or agent._presence_tracker is None:
+        agent.enable_presence_tracking()
+    if getattr(args, "content", None):
+        metrics = agent.record_presence_turn(
+            content=args.content,
+            domain=getattr(args, "domain", "general"),
+            valence=float(getattr(args, "valence", 0.0)),
+            intensity=float(getattr(args, "intensity", 0.0)),
+        )
+    else:
+        metrics = agent.presence_metrics()
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "session_id": metrics.session_id,
+            "turn_count": metrics.turn_count,
+            "presence_score": round(metrics.presence_score, 4),
+            "attention_budget_remaining": round(metrics.attention_budget_remaining, 4),
+            "coherence_trend": metrics.coherence_trend,
+            "is_degrading": metrics.is_degrading,
+            "mean_valence": round(metrics.mean_valence, 4),
+            "mean_intensity": round(metrics.mean_intensity, 4),
+        }))
+    else:
+        print(metrics.summary())
+
+
+def cmd_presence_arc(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    if not hasattr(agent, "_presence_tracker") or agent._presence_tracker is None:
+        print("No active presence tracker. Run 'presence' first.")
+        return
+    arc = agent._presence_tracker.emotional_arc()
+    if getattr(args, "json", False):
+        print(json.dumps({"arc": arc, "length": len(arc)}))
+    else:
+        if not arc:
+            print("No turns recorded yet.")
+        else:
+            print(f"Emotional arc ({len(arc)} turns):")
+            for i, v in enumerate(arc):
+                bar = "█" * int((v + 1.0) * 10) + "░" * int((1.0 - v) * 10)
+                print(f"  {i:3d}  {bar}  {v:+.2f}")
+
+
+def cmd_affective_retrieve(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    results = agent.affective_retrieve(
+        query=getattr(args, "query", "") or "",
+        target_valence=getattr(args, "target_valence", None),
+        target_intensity=getattr(args, "target_intensity", None),
+        max_results=getattr(args, "max", 10),
+        semantic_blend=getattr(args, "semantic_blend", 0.4),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "count": len(results),
+            "results": [
+                {
+                    "id": r.memory.id,
+                    "score": round(r.score, 4),
+                    "proximity": round(r.emotional_proximity, 4),
+                    "valence": round(r.memory.experience.emotional_valence, 3),
+                    "intensity": round(r.memory.experience.emotional_intensity, 3),
+                    "content": r.memory.experience.content[:100],
+                }
+                for r in results
+            ],
+        }))
+    else:
+        print(f"Affective results ({len(results)}):")
+        for r in results:
+            v = r.memory.experience.emotional_valence
+            i = r.memory.experience.emotional_intensity
+            print(f"  [{r.score:.4f}] prox={r.emotional_proximity:.4f} "
+                  f"v={v:+.2f} i={i:.2f}  {r.memory.experience.content[:80]}")
+
+
+def cmd_emotional_landscape(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    landscape = agent.emotional_landscape()
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_memories": landscape.total_memories,
+            "mean_valence": round(landscape.mean_valence, 4),
+            "mean_intensity": round(landscape.mean_intensity, 4),
+            "valence_std": round(landscape.valence_std, 4),
+            "intensity_std": round(landscape.intensity_std, 4),
+            "valence_histogram": landscape.valence_histogram,
+            "intensity_histogram": landscape.intensity_histogram,
+            "most_positive": landscape.most_positive,
+            "most_negative": landscape.most_negative,
+            "most_intense": landscape.most_intense,
+        }))
+    else:
+        print(landscape.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -946,6 +1087,59 @@ def build_parser() -> argparse.ArgumentParser:
     p_pr.add_argument("--boost", type=float, default=0.10,
                       help="Cross-boost increment per additional sub-query hit.")
     p_pr.set_defaults(func=cmd_plan_retrieve)
+
+    # v0.10.0 commands
+
+    # reconsolidate
+    p_rc = sub.add_parser("reconsolidate",
+                           help="Reconsolidate a memory after recall (strengthen/weaken + valence drift).")
+    p_rc.add_argument("memory_id", help="MemoryItem ID to reconsolidate.")
+    p_rc.add_argument("--context-valence", type=float, default=None, dest="context_valence",
+                      help="Emotional valence of recall context (-1..+1).")
+    p_rc.add_argument("--weaken", action="store_true",
+                      help="Weaken rather than reinforce.")
+    p_rc.set_defaults(func=cmd_reconsolidate)
+
+    # decay-unrecalled
+    p_du = sub.add_parser("decay-unrecalled",
+                           help="Apply passive strength decay to memories not recently recalled.")
+    p_du.add_argument("--decay-factor", type=float, default=0.02, dest="decay_factor",
+                      help="Absolute strength reduction per call.")
+    p_du.add_argument("--min-age", type=float, default=3600.0, dest="min_age",
+                      help="Minimum seconds since last access before decaying (default 3600).")
+    p_du.set_defaults(func=cmd_decay_unrecalled)
+
+    # presence
+    p_ps = sub.add_parser("presence",
+                           help="Show session presence metrics (attention budget, coherence, emotional arc).")
+    p_ps.add_argument("--content", default=None, help="If given, record a turn with this content.")
+    p_ps.add_argument("--domain", default="general")
+    p_ps.add_argument("--valence", type=float, default=0.0)
+    p_ps.add_argument("--intensity", type=float, default=0.0)
+    p_ps.set_defaults(func=cmd_presence)
+
+    # presence-arc
+    p_pa = sub.add_parser("presence-arc",
+                           help="Display the per-turn emotional arc of the active session.")
+    p_pa.set_defaults(func=cmd_presence_arc)
+
+    # affective-retrieve
+    p_af = sub.add_parser("affective-retrieve",
+                           help="Retrieve memories by emotional proximity (valence/intensity).")
+    p_af.add_argument("--query", "-q", default="", help="Optional semantic query.")
+    p_af.add_argument("--valence", type=float, default=None, dest="target_valence",
+                      help="Target emotional valence (-1..+1).")
+    p_af.add_argument("--intensity", type=float, default=None, dest="target_intensity",
+                      help="Target emotional intensity (0..1).")
+    p_af.add_argument("--max", "-n", type=int, default=10)
+    p_af.add_argument("--blend", type=float, default=0.4, dest="semantic_blend",
+                      help="Weight of semantic score [0,1].")
+    p_af.set_defaults(func=cmd_affective_retrieve)
+
+    # emotional-landscape
+    p_el = sub.add_parser("emotional-landscape",
+                           help="Summarise emotional distribution across all memories.")
+    p_el.set_defaults(func=cmd_emotional_landscape)
 
     return parser
 
