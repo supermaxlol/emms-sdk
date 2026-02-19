@@ -37,6 +37,7 @@ from emms.core.models import (
     MemoryItem,
     MemoryTier,
     Modality,
+    ObsType,
     RetrievalResult,
 )
 from emms.context.token_manager import TokenContextManager
@@ -51,7 +52,10 @@ from emms.identity.consciousness import (
 )
 from emms.memory.graph import GraphMemory
 from emms.memory.hierarchical import HierarchicalMemory
-from emms.memory.compression import MemoryCompressor, CompressedMemory, PatternDetector
+from emms.memory.compression import MemoryCompressor, CompressedMemory, PatternDetector, SemanticDeduplicator
+from emms.memory.procedural import ProceduralMemory, ProcedureEntry
+from emms.memory.spaced_repetition import SpacedRepetitionSystem
+from emms.core.importance import ImportanceClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +119,20 @@ class EMMS:
         self._graph_enabled = enable_graph
         self.graph = GraphMemory() if enable_graph else None
 
+        # Procedural memory (5th tier: evolving behavioral rules)
+        self.procedures = ProceduralMemory()
+
+        # v0.6.0: new sub-systems
+        self.importance_clf = ImportanceClassifier()
+        self.deduplicator = SemanticDeduplicator(
+            cosine_threshold=self.cfg.dedup_cosine_threshold,
+            lexical_threshold=self.cfg.dedup_lexical_threshold,
+        )
+        self.srs = SpacedRepetitionSystem(self.memory)
+        # Scheduler created lazily on start_scheduler() to avoid background
+        # tasks being created before the event loop is running
+        self._scheduler: "Any | None" = None
+
         # Async lock for thread-safe operations
         self._lock = asyncio.Lock()
 
@@ -134,6 +152,9 @@ class EMMS:
     def store(self, experience: Experience) -> dict[str, Any]:
         """Full pipeline: hierarchy + consciousness + graph + cross-modal + vector store + episodes + identity."""
         t0 = time.time()
+
+        # 0. Auto-enrich importance from content signals (if still default)
+        self.importance_clf.enrich(experience)
 
         # 1. Hierarchical memory (also computes embedding if embedder set)
         mem_item = self.memory.store(experience)
@@ -274,21 +295,44 @@ class EMMS:
     # ------------------------------------------------------------------
 
     def save(self, memory_path: str | Path | None = None) -> None:
-        """Save identity, memory state, and consciousness state to disk."""
+        """Save identity, memory state, graph state, procedural memory, consciousness, and SRS to disk."""
         self.identity.save()
         if memory_path is not None:
             memory_path = Path(memory_path)
             self.memory.save_state(memory_path)
+            # Save graph state alongside memory
+            if self._graph_enabled and self.graph is not None:
+                graph_path = memory_path.parent / (memory_path.stem + "_graph.json")
+                self.graph.save_state(graph_path)
+            # Save procedural memory
+            proc_path = memory_path.parent / (memory_path.stem + "_procedures.json")
+            self.procedures.save_state(proc_path)
+            # Save SRS state
+            srs_path = memory_path.parent / (memory_path.stem + "_srs.json")
+            self.srs.save_state(srs_path)
             # Save consciousness state alongside memory
             if self._consciousness_enabled:
                 consciousness_path = memory_path.parent / (memory_path.stem + "_consciousness.json")
                 self._save_consciousness_state(consciousness_path)
 
     def load(self, memory_path: str | Path | None = None) -> None:
-        """Load memory state and consciousness state from disk."""
+        """Load memory state, graph state, procedural memory, consciousness, and SRS from disk."""
         if memory_path is not None:
             memory_path = Path(memory_path)
             self.memory.load_state(memory_path)
+            # Load graph state if it exists
+            if self._graph_enabled and self.graph is not None:
+                graph_path = memory_path.parent / (memory_path.stem + "_graph.json")
+                if graph_path.exists():
+                    self.graph.load_state(graph_path)
+            # Load procedural memory if it exists
+            proc_path = memory_path.parent / (memory_path.stem + "_procedures.json")
+            if proc_path.exists():
+                self.procedures.load_state(proc_path)
+            # Load SRS state if it exists
+            srs_path = memory_path.parent / (memory_path.stem + "_srs.json")
+            if srs_path.exists():
+                self.srs.load_state(srs_path)
             # Load consciousness state if it exists
             if self._consciousness_enabled:
                 consciousness_path = memory_path.parent / (memory_path.stem + "_consciousness.json")
@@ -300,7 +344,7 @@ class EMMS:
         import json as _json
 
         state = {
-            "version": "0.4.0",
+            "version": "0.5.1",
             "saved_at": time.time(),
             "narrator": {
                 "entries": [e.model_dump() for e in self.narrator.entries],
@@ -308,6 +352,8 @@ class EMMS:
                 "coherence": self.narrator.coherence,
                 "traits": dict(self.narrator.traits),
                 "autobiographical": list(self.narrator.autobiographical),
+                # A-MEM: preserve retroactive boost tuning
+                "retroactive_boost": self.narrator._retroactive_boost,
             },
             "meaning_maker": {
                 "value_weights": dict(self.meaning_maker.value_weights),
@@ -315,6 +361,8 @@ class EMMS:
                 "meaning_narratives": list(self.meaning_maker.meaning_narratives),
                 "pattern_tracker": dict(self.meaning_maker.pattern_tracker),
                 "emotional_memory": list(self.meaning_maker.emotional_memory),
+                # domain curiosity (drives novelty-seeking)
+                "domain_curiosity": dict(self.meaning_maker._domain_curiosity),
             },
             "temporal": {
                 "recent_domains": list(self.temporal._recent_domains),
@@ -329,6 +377,8 @@ class EMMS:
                 "boundary_strength": self.ego_boundary.boundary_strength,
                 "boundary_history": list(self.ego_boundary.boundary_history),
                 "reinforcement_events": list(self.ego_boundary.reinforcement_events),
+                # core creeds (hardened identity beliefs)
+                "core_creeds": list(self.ego_boundary.core_creeds),
             },
         }
 
@@ -351,6 +401,11 @@ class EMMS:
             self.narrator.coherence = n.get("coherence", 0.9)
             self.narrator.traits = n.get("traits", {})
             self.narrator.autobiographical = n.get("autobiographical", [])
+            self.narrator._retroactive_boost = n.get("retroactive_boost", 0.05)
+            # Rebuild A-MEM bidirectional index from persisted linked_to lists
+            # The linked_to indices are already restored via model_dump; no extra work needed
+            # but ensure the narrator knows entries count matches
+            logger.debug("Narrator: %d entries restored with A-MEM links", len(self.narrator.entries))
 
         # Restore meaning maker
         if "meaning_maker" in data and self.meaning_maker is not None:
@@ -362,6 +417,7 @@ class EMMS:
             self.meaning_maker.emotional_memory = [
                 tuple(pair) for pair in m.get("emotional_memory", [])
             ]
+            self.meaning_maker._domain_curiosity = m.get("domain_curiosity", {})
 
         # Restore temporal integrator
         if "temporal" in data and self.temporal is not None:
@@ -384,8 +440,189 @@ class EMMS:
             self.ego_boundary.boundary_strength = e.get("boundary_strength", 0.5)
             self.ego_boundary.boundary_history = e.get("boundary_history", [])
             self.ego_boundary.reinforcement_events = e.get("reinforcement_events", [])
+            self.ego_boundary.core_creeds = e.get("core_creeds", [])
 
         logger.info("Consciousness state loaded from %s", path)
+
+    # ------------------------------------------------------------------
+    # RAG context building (v0.6.0)
+    # ------------------------------------------------------------------
+
+    def build_rag_context(
+        self,
+        query: str,
+        max_results: int = 20,
+        token_budget: int = 4000,
+        fmt: str = "markdown",
+        include_metadata: bool = True,
+        min_score: float = 0.0,
+    ) -> str:
+        """Retrieve memories and build a token-budget-aware context document.
+
+        Args:
+            query: Natural-language search query.
+            max_results: How many memories to retrieve before budget-packing.
+            token_budget: Maximum context tokens (approximate).
+            fmt: Output format — ``markdown``, ``xml``, ``json``, or ``plain``.
+            include_metadata: Include score/tier/namespace annotations.
+            min_score: Skip results below this score threshold.
+
+        Returns:
+            Context string ready to inject into an LLM prompt.
+        """
+        from emms.context.rag_builder import RAGContextBuilder
+        results = self.retrieve(query, max_results=max_results)
+        builder = RAGContextBuilder(
+            token_budget=token_budget,
+            include_metadata=include_metadata,
+            min_score=min_score,
+        )
+        return builder.build(results, fmt=fmt)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
+    # Deduplication (v0.6.0)
+    # ------------------------------------------------------------------
+
+    def deduplicate(
+        self,
+        cosine_threshold: float | None = None,
+        lexical_threshold: float | None = None,
+    ) -> dict[str, Any]:
+        """Scan long-term memories for near-duplicates and archive weaker copies.
+
+        Args:
+            cosine_threshold: Override cosine similarity threshold (default from config).
+            lexical_threshold: Override lexical similarity threshold (default from config).
+
+        Returns:
+            Dict with ``groups_found`` and ``memories_archived`` counts.
+        """
+        if cosine_threshold is not None:
+            self.deduplicator.cosine_threshold = cosine_threshold
+        if lexical_threshold is not None:
+            self.deduplicator.lexical_threshold = lexical_threshold
+
+        items = list(self.memory.long_term.values())
+        groups = self.deduplicator.find_duplicate_groups(items)
+        archived = self.deduplicator.resolve_groups(groups)
+        result = {"groups_found": len(groups), "memories_archived": len(archived)}
+        self.events.emit("memory.deduplicated", result)
+        return result
+
+    # ------------------------------------------------------------------
+    # Spaced Repetition System (v0.6.0)
+    # ------------------------------------------------------------------
+
+    def srs_enroll(self, memory_id: str) -> bool:
+        """Enrol a memory in the SRS review schedule.
+
+        Returns:
+            True if enrolled (or already enrolled), False if memory not found.
+        """
+        card = self.srs.enroll(memory_id)
+        return card is not None
+
+    def srs_enroll_all(self) -> int:
+        """Enrol all non-expired, non-superseded memories in SRS.
+
+        Returns:
+            Number of newly enrolled memories.
+        """
+        return self.srs.enroll_all()
+
+    def srs_record_review(self, memory_id: str, quality: int) -> bool:
+        """Record an SRS review outcome (quality 0–5).
+
+        Args:
+            memory_id: Memory that was reviewed.
+            quality: Recall quality 0 (blackout) … 5 (perfect).
+
+        Returns:
+            True on success, False if memory not found.
+        """
+        card = self.srs.record_review(memory_id, quality)
+        return card is not None
+
+    def srs_due(self, max_items: int = 50) -> list[str]:
+        """Return memory IDs due for SRS review, most-overdue first."""
+        return [c.memory_id for c in self.srs.get_due_items(max_items)]
+
+    # ------------------------------------------------------------------
+    # Scheduler (v0.6.0)
+    # ------------------------------------------------------------------
+
+    async def start_scheduler(self, **kwargs: Any) -> None:
+        """Start the MemoryScheduler with composable background jobs.
+
+        Replaces the older ``start_background_consolidation()`` with a
+        multi-job scheduler.  Keyword arguments are forwarded to
+        ``MemoryScheduler.__init__()``.
+        """
+        from emms.scheduler import MemoryScheduler
+        self._scheduler = MemoryScheduler(self, **kwargs)
+        await self._scheduler.start()
+
+    async def stop_scheduler(self) -> None:
+        """Stop the MemoryScheduler."""
+        if self._scheduler is not None:
+            await self._scheduler.stop()
+            self._scheduler = None
+
+    # ------------------------------------------------------------------
+    # Graph visualization (v0.6.0)
+    # ------------------------------------------------------------------
+
+    def export_graph_dot(
+        self,
+        title: str = "EMMS Knowledge Graph",
+        max_nodes: int = 100,
+        min_importance: float = 0.0,
+        highlight: list[str] | None = None,
+    ) -> str:
+        """Export the knowledge graph as a Graphviz DOT string.
+
+        Args:
+            title: Graph title label.
+            max_nodes: Maximum entity nodes to include.
+            min_importance: Only include entities with importance ≥ this value.
+            highlight: Entity names to highlight in red.
+
+        Returns:
+            DOT-language string, or empty string if graph disabled.
+        """
+        if self.graph is None:
+            return ""
+        return self.graph.to_dot(
+            title=title,
+            max_nodes=max_nodes,
+            min_importance=min_importance,
+            highlight=highlight,
+        )
+
+    def export_graph_d3(
+        self,
+        max_nodes: int = 200,
+        min_importance: float = 0.0,
+    ) -> dict[str, Any]:
+        """Export the knowledge graph as a D3.js force-graph JSON dict.
+
+        Returns:
+            Dict with ``nodes`` and ``links`` arrays, or empty graph if disabled.
+        """
+        if self.graph is None:
+            return {"nodes": [], "links": []}
+        return self.graph.to_d3(max_nodes=max_nodes, min_importance=min_importance)
+
+    # ------------------------------------------------------------------
+    # ImportanceClassifier access (v0.6.0)
+    # ------------------------------------------------------------------
+
+    def score_importance(self, experience: "Experience") -> dict[str, float]:
+        """Return per-signal importance breakdown for an experience.
+
+        Useful for debugging why a memory was scored a certain way.
+        """
+        return self.importance_clf.score_breakdown(experience)
 
     # ------------------------------------------------------------------
     # Graph queries
@@ -424,6 +661,340 @@ class EMMS:
             "content": self.pattern_detector.find_content_patterns(all_items),
             "domain": self.pattern_detector.find_domain_patterns(all_items),
         }
+
+    # ------------------------------------------------------------------
+    # Filtered retrieval (namespace + structured filters)
+    # ------------------------------------------------------------------
+
+    def retrieve_filtered(
+        self,
+        query: str,
+        max_results: int = 10,
+        *,
+        namespace: str | None = None,
+        obs_type: "ObsType | None" = None,
+        domain: str | None = None,
+        session_id: str | None = None,
+        since: float | None = None,
+        until: float | None = None,
+        min_confidence: float | None = None,
+    ) -> list[RetrievalResult]:
+        """Retrieve with structured pre-filters (namespace, obs_type, time range, confidence…).
+
+        All filter args are optional; omitting one means no filtering on that field.
+        Confidence scaling applies: memories with ``confidence < 1.0`` receive a
+        proportional score penalty.
+        """
+        return self.memory.retrieve_filtered(
+            query,
+            max_results,
+            namespace=namespace,
+            obs_type=obs_type,
+            domain=domain,
+            session_id=session_id,
+            since=since,
+            until=until,
+            min_confidence=min_confidence,
+        )
+
+    # ------------------------------------------------------------------
+    # Memory feedback (upvote / downvote)
+    # ------------------------------------------------------------------
+
+    def upvote(self, memory_id: str, boost: float = 0.1) -> bool:
+        """Positive feedback: strengthen a memory and record an access.
+
+        Call this when a retrieved memory proved useful to the user.
+        """
+        return self.memory.upvote(memory_id, boost)
+
+    def downvote(self, memory_id: str, decay: float = 0.2) -> bool:
+        """Negative feedback: weaken a memory.
+
+        Call this when a retrieved memory was irrelevant or incorrect.
+        """
+        return self.memory.downvote(memory_id, decay)
+
+    # ------------------------------------------------------------------
+    # Markdown export
+    # ------------------------------------------------------------------
+
+    def export_markdown(
+        self,
+        path: "str | Path",
+        include_private: bool = False,
+        namespace: str | None = None,
+    ) -> int:
+        """Export memories as a structured human-readable Markdown document.
+
+        Groups memories by domain, includes facts, files, and metadata.
+        Useful for human review, version-control diffing, or LLM context injection.
+
+        Returns:
+            Number of memories exported.
+        """
+        return self.memory.export_markdown(path, include_private=include_private, namespace=namespace)
+
+    # ------------------------------------------------------------------
+    # Streaming retrieval (v0.7.0)
+    # ------------------------------------------------------------------
+
+    async def astream_retrieve(self, query: str, max_results: int = 10):
+        """Async generator that yields RetrievalResult items tier-by-tier.
+
+        Results are emitted as they are scored, highest-priority tier first.
+        Cooperative multitasking is maintained with asyncio.sleep(0) between
+        tier boundaries so other tasks can run.
+
+        Usage::
+
+            async for result in agent.astream_retrieve("machine learning"):
+                print(result.memory.experience.content, result.score)
+        """
+        async for result in self.memory.stream_retrieve(query, max_results):
+            yield result
+
+    # ------------------------------------------------------------------
+    # Memory diff (v0.7.0)
+    # ------------------------------------------------------------------
+
+    def diff_since(
+        self,
+        snapshot_path: "str | Path",
+        strength_threshold: float = 0.05,
+    ) -> "Any":
+        """Compare current memory state against a previously saved snapshot.
+
+        Parameters
+        ----------
+        snapshot_path : path to a snapshot JSON written by ``save()``.
+        strength_threshold : minimum strength delta to count as changed.
+
+        Returns
+        -------
+        DiffResult with added/removed/strengthened/weakened/superseded lists.
+        """
+        from emms.memory.diff import MemoryDiff, ItemSnapshot
+        from pathlib import Path as _Path
+        import json as _json
+
+        p = _Path(snapshot_path)
+        data = _json.loads(p.read_text(encoding="utf-8"))
+
+        def _snap(data_: dict) -> tuple[dict, float]:
+            from emms.memory.diff import _load_snapshot
+            return _load_snapshot(data_)
+
+        snap_a, time_a = _snap(data)
+
+        # Build current state snapshot
+        snap_b: dict[str, ItemSnapshot] = {}
+        for _, store in self.memory._iter_tiers():
+            for item in store:
+                s = ItemSnapshot(
+                    id=item.id,
+                    experience_id=item.experience.id,
+                    content=item.experience.content,
+                    domain=item.experience.domain,
+                    tier=item.tier.value,
+                    importance=item.experience.importance,
+                    memory_strength=item.memory_strength,
+                    access_count=item.access_count,
+                    stored_at=item.stored_at,
+                    superseded_by=item.superseded_by,
+                    title=item.experience.title,
+                )
+                snap_b[s.id] = s
+
+        import time as _time
+        return MemoryDiff.diff(snap_a, snap_b, time_a, _time.time(), strength_threshold)
+
+    # ------------------------------------------------------------------
+    # Memory clustering (v0.7.0)
+    # ------------------------------------------------------------------
+
+    def cluster_memories(
+        self,
+        k: int | None = None,
+        auto_k: bool = False,
+        tier: "str" = "long_term",
+        k_min: int = 2,
+        k_max: int = 10,
+    ) -> "Any":
+        """Cluster memory items into semantic groups.
+
+        Parameters
+        ----------
+        k : number of clusters (required unless ``auto_k=True``).
+        auto_k : if True, select k automatically via elbow method.
+        tier : which tier to cluster (``"long_term"``, ``"semantic"``, etc.).
+        k_min, k_max : search bounds for ``auto_k``.
+
+        Returns
+        -------
+        list[MemoryCluster]
+        """
+        from emms.memory.clustering import MemoryClustering
+        from emms.core.models import MemoryTier
+
+        tier_enum = MemoryTier(tier)
+        tier_map = {
+            MemoryTier.WORKING: list(self.memory.working),
+            MemoryTier.SHORT_TERM: list(self.memory.short_term),
+            MemoryTier.LONG_TERM: list(self.memory.long_term.values()),
+            MemoryTier.SEMANTIC: list(self.memory.semantic.values()),
+        }
+        items = tier_map.get(tier_enum, [])
+
+        clustering = MemoryClustering()
+        if self.memory._embeddings:
+            return clustering.cluster_with_embeddings(
+                items,
+                embeddings=self.memory._embeddings,
+                k=k,
+                auto_k=auto_k,
+                k_min=k_min,
+                k_max=k_max,
+            )
+        return clustering.cluster(items, k=k, auto_k=auto_k, k_min=k_min, k_max=k_max)
+
+    # ------------------------------------------------------------------
+    # LLM consolidation (v0.7.0)
+    # ------------------------------------------------------------------
+
+    async def llm_consolidate(
+        self,
+        threshold: float = 0.7,
+        llm_enhancer: "Any | None" = None,
+        tier: "str" = "long_term",
+        max_clusters: int = 20,
+    ) -> "Any":
+        """Scan memory for similar items and synthesise each cluster via LLM.
+
+        Parameters
+        ----------
+        threshold : minimum similarity to link two items.
+        llm_enhancer : optional LLMEnhancer; uses extractive fallback if None.
+        tier : which tier to scan.
+        max_clusters : cap on the number of clusters to process.
+
+        Returns
+        -------
+        ConsolidationResult
+        """
+        from emms.llm.consolidator import LLMConsolidator
+        from emms.core.models import MemoryTier
+
+        consolidator = LLMConsolidator(self.memory)
+        return await consolidator.auto_consolidate(
+            threshold=threshold,
+            llm_enhancer=llm_enhancer,
+            tier=MemoryTier(tier),
+            max_clusters=max_clusters,
+        )
+
+    # ------------------------------------------------------------------
+    # Conversation buffer (v0.7.0)
+    # ------------------------------------------------------------------
+
+    def build_conversation_context(
+        self,
+        turns: list[tuple[str, str]],
+        max_tokens: int = 2000,
+        window_size: int = 20,
+        summarise_chunk: int = 5,
+    ) -> str:
+        """Build a context string from a list of (role, content) conversation turns.
+
+        Useful for injecting conversation history into a prompt without
+        exceeding the token budget.
+
+        Parameters
+        ----------
+        turns : list of (role, content) tuples.
+        max_tokens : approximate token budget.
+        window_size : max raw turns in the live window.
+        summarise_chunk : how many turns to summarise at a time when evicting.
+
+        Returns
+        -------
+        str — formatted context block.
+        """
+        from emms.sessions.conversation import ConversationBuffer
+
+        buf = ConversationBuffer(
+            window_size=window_size,
+            summarise_chunk=summarise_chunk,
+        )
+        for role, content in turns:
+            buf.observe_turn(role, content)
+        return buf.get_context(max_tokens=max_tokens)
+
+    # ------------------------------------------------------------------
+    # Citation validation (GitHub Copilot pattern)
+    # ------------------------------------------------------------------
+
+    def validate_citations(self, experience: Experience) -> dict[str, bool]:
+        """Check that each cited memory ID exists in the memory store.
+
+        When a memory cites others (``experience.citations``), this verifies
+        those memories are still present and strengthens them by +0.1 memory
+        strength (Copilot-inspired: referenced memories self-renew).
+
+        Args:
+            experience: The experience whose citations to validate.
+
+        Returns:
+            Mapping of ``{mem_id: found}`` for each citation.
+        """
+        result: dict[str, bool] = {}
+        for mem_id in experience.citations:
+            found = False
+            for _, store in self.memory._iter_tiers():
+                for item in store:
+                    if item.id == mem_id or item.experience.id == mem_id:
+                        found = True
+                        # Strengthen cited memory (TTL refresh + strength boost)
+                        item.memory_strength = min(1.0, item.memory_strength + 0.1)
+                        item.touch()
+                        break
+                if found:
+                    break
+            result[mem_id] = found
+        return result
+
+    # ------------------------------------------------------------------
+    # File-based retrieval (claude-mem inspired)
+    # ------------------------------------------------------------------
+
+    def search_by_file(self, file_path: str) -> list[MemoryItem]:
+        """Find all memories that reference a specific file path.
+
+        Searches ``files_read`` and ``files_modified`` on stored experiences.
+        Returns results sorted newest-first.
+
+        Args:
+            file_path: Exact or partial file path to search for.
+        """
+        return self.memory.search_by_file(file_path)
+
+    # ------------------------------------------------------------------
+    # Procedural memory (LangMem-inspired: 5th tier)
+    # ------------------------------------------------------------------
+
+    def add_procedure(
+        self,
+        rule: str,
+        domain: str = "general",
+        importance: float = 0.5,
+        tags: list[str] | None = None,
+    ) -> ProcedureEntry:
+        """Add a behavioral rule to procedural memory."""
+        return self.procedures.add(rule, domain=domain, importance=importance, tags=tags or [])
+
+    def get_system_prompt_rules(self, domain: str | None = None) -> str:
+        """Return formatted procedural rules for system prompt injection."""
+        return self.procedures.get_prompt(domain=domain)
 
     # ------------------------------------------------------------------
     # Compression
@@ -492,11 +1063,26 @@ class EMMS:
             self._consolidation_task = None
 
     async def _consolidation_loop(self, interval: float) -> None:
-        """Background consolidation loop."""
+        """Background consolidation loop — consolidates memory and runs pattern detection."""
+        _consolidation_count = 0
         while not self._shutdown:
             await asyncio.sleep(interval)
             async with self._lock:
                 self.consolidate()
+                _consolidation_count += 1
+                # Run pattern detection every 5 consolidation passes
+                if _consolidation_count % 5 == 0:
+                    try:
+                        patterns = self.detect_patterns()
+                        if patterns.get("sequence") or patterns.get("content"):
+                            logger.debug(
+                                "Pattern detection: %d sequences, %d content patterns",
+                                len(patterns.get("sequence", [])),
+                                len(patterns.get("content", [])),
+                            )
+                            self.events.emit("memory.patterns_detected", patterns)
+                    except Exception as e:
+                        logger.warning("Pattern detection failed: %s", e)
 
     # ------------------------------------------------------------------
     # Async API
@@ -513,9 +1099,8 @@ class EMMS:
             return self.store_batch(experiences)
 
     async def aretrieve(self, query: str, max_results: int = 10) -> list[RetrievalResult]:
-        """Async retrieve from hierarchical memory."""
-        async with self._lock:
-            return self.retrieve(query, max_results)
+        """Async retrieve — lock-free (retrieval is read-only, no state mutation)."""
+        return self.retrieve(query, max_results)
 
     async def aretrieve_semantic(
         self,
@@ -523,9 +1108,8 @@ class EMMS:
         max_results: int = 10,
         where: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Async semantic retrieval."""
-        async with self._lock:
-            return self.retrieve_semantic(query, max_results, where)
+        """Async semantic retrieval — lock-free."""
+        return self.retrieve_semantic(query, max_results, where)
 
     async def aconsolidate(self) -> dict[str, Any]:
         """Async consolidation."""
@@ -567,3 +1151,277 @@ class EMMS:
                 "milestones": len(self.temporal.milestones),
             }
         return result
+
+    # ------------------------------------------------------------------
+    # Hybrid retrieval (v0.8.0)
+    # ------------------------------------------------------------------
+
+    def hybrid_retrieve(
+        self,
+        query: str,
+        max_results: int = 10,
+        bm25_k1: float = 1.5,
+        bm25_b: float = 0.75,
+        rrf_k: float = 60.0,
+        min_score: float = 0.0,
+    ) -> list[RetrievalResult]:
+        """Hybrid BM25 + embedding retrieval fused via Reciprocal Rank Fusion.
+
+        Combines lexical BM25 matching with embedding cosine similarity into a
+        single ranked list.  No score normalisation needed — RRF is rank-based.
+
+        Args:
+            query: Natural-language search query.
+            max_results: Maximum results to return.
+            bm25_k1: BM25 term saturation parameter.
+            bm25_b: BM25 length normalisation parameter.
+            rrf_k: RRF smoothing constant (literature default: 60).
+            min_score: Skip results with RRF score below this threshold.
+
+        Returns:
+            list[RetrievalResult] sorted by descending RRF score.
+        """
+        from emms.retrieval.hybrid import HybridRetriever
+        retriever = HybridRetriever(
+            self.memory,
+            bm25_k1=bm25_k1,
+            bm25_b=bm25_b,
+            rrf_k=rrf_k,
+            embedder=self.embedder,
+        )
+        return retriever.retrieve_as_retrieval_results(
+            query,
+            max_results=max_results,
+            min_score=min_score,
+        )
+
+    # ------------------------------------------------------------------
+    # Memory timeline (v0.8.0)
+    # ------------------------------------------------------------------
+
+    def build_timeline(
+        self,
+        *,
+        domain: str | None = None,
+        since: float | None = None,
+        until: float | None = None,
+        tiers: list[str] | None = None,
+        gap_threshold_seconds: float = 300.0,
+        bucket_size_seconds: float = 3600.0,
+        include_expired: bool = False,
+    ) -> "Any":
+        """Build a chronological memory timeline with gap and density analysis.
+
+        Args:
+            domain: Filter to a single domain (None = all).
+            since: Only include memories stored after this Unix timestamp.
+            until: Only include memories stored before this Unix timestamp.
+            tiers: Which tier names to include (None = all).
+            gap_threshold_seconds: Minimum gap duration to flag as a TemporalGap.
+            bucket_size_seconds: Histogram bucket width.
+            include_expired: Include expired/superseded memories.
+
+        Returns:
+            TimelineResult with events, gaps, density histogram, and statistics.
+        """
+        from emms.analytics.timeline import MemoryTimeline
+        timeline = MemoryTimeline(
+            self.memory,
+            gap_threshold_seconds=gap_threshold_seconds,
+            bucket_size_seconds=bucket_size_seconds,
+        )
+        return timeline.build(
+            domain=domain,
+            since=since,
+            until=until,
+            tiers=tiers,
+            include_expired=include_expired,
+        )
+
+    # ------------------------------------------------------------------
+    # Adaptive retrieval (v0.8.0)
+    # ------------------------------------------------------------------
+
+    def enable_adaptive_retrieval(
+        self,
+        strategies: list[str] | None = None,
+        decay: float = 1.0,
+        seed: int | None = None,
+    ) -> "Any":
+        """Create and attach an AdaptiveRetriever to this EMMS instance.
+
+        The retriever is stored as ``self._adaptive_retriever`` and reused
+        by ``adaptive_retrieve()`` / ``adaptive_feedback()`` / ``get_retrieval_beliefs()``.
+
+        Args:
+            strategies: Arm names (default: semantic, bm25, temporal, domain, importance).
+            decay: Geometric discount applied per update (1.0 = no decay).
+            seed: RNG seed for reproducible Thompson sampling.
+
+        Returns:
+            The new AdaptiveRetriever instance.
+        """
+        from emms.retrieval.adaptive import AdaptiveRetriever
+        self._adaptive_retriever: "Any" = AdaptiveRetriever(
+            self.memory,
+            strategies=strategies,
+            decay=decay,
+            seed=seed,
+            embedder=self.embedder,
+        )
+        return self._adaptive_retriever
+
+    def adaptive_retrieve(
+        self,
+        query: str,
+        max_results: int = 10,
+        explore: bool = True,
+    ) -> list[RetrievalResult]:
+        """Retrieve using the Thompson-sampled strategy from the adaptive retriever.
+
+        Requires ``enable_adaptive_retrieval()`` to have been called first.
+        Falls back to standard ``retrieve()`` if no adaptive retriever is set.
+
+        Args:
+            query: Natural-language search query.
+            max_results: Maximum results.
+            explore: If True, sample via Thompson Sampling; if False, exploit best arm.
+
+        Returns:
+            list[RetrievalResult]
+        """
+        retriever = getattr(self, "_adaptive_retriever", None)
+        if retriever is None:
+            return self.retrieve(query, max_results=max_results)
+        return retriever.retrieve(query, max_results=max_results, explore=explore)
+
+    def adaptive_feedback(
+        self,
+        strategy_name: str | None = None,
+        reward: float = 1.0,
+    ) -> None:
+        """Provide feedback to the adaptive retriever.
+
+        Args:
+            strategy_name: Arm to update (None = last selected arm).
+            reward: 1.0 = helpful; 0.0 = not helpful.
+        """
+        retriever = getattr(self, "_adaptive_retriever", None)
+        if retriever is not None:
+            retriever.record_feedback(strategy_name, reward=reward)
+
+    def get_retrieval_beliefs(self) -> dict[str, Any]:
+        """Return the current Beta belief state for all adaptive retrieval arms.
+
+        Returns:
+            Dict mapping strategy name → {alpha, beta, mean, variance, pulls, rewards}.
+        """
+        retriever = getattr(self, "_adaptive_retriever", None)
+        if retriever is None:
+            return {}
+        return {
+            name: {
+                "alpha": b.alpha,
+                "beta": b.beta,
+                "mean": b.mean,
+                "variance": b.variance,
+                "pulls": b.pulls,
+                "rewards": b.rewards,
+            }
+            for name, b in retriever.get_beliefs().items()
+        }
+
+    # ------------------------------------------------------------------
+    # Memory budget (v0.8.0)
+    # ------------------------------------------------------------------
+
+    def memory_token_footprint(self) -> dict[str, Any]:
+        """Return per-tier and total token estimates for all stored memories.
+
+        Returns:
+            Dict with keys ``total``, ``by_tier``, ``memory_count``.
+        """
+        from emms.context.budget import MemoryBudget
+        budget = MemoryBudget(self.memory)
+        return budget.token_footprint()
+
+    def enforce_memory_budget(
+        self,
+        max_tokens: int = 100_000,
+        dry_run: bool = False,
+        policy: str = "composite",
+        protected_tiers: list[str] | None = None,
+        importance_threshold: float = 0.8,
+    ) -> "Any":
+        """Enforce a token budget by evicting low-value memories.
+
+        Args:
+            max_tokens: Maximum allowed total token footprint.
+            dry_run: If True, compute but do not actually evict.
+            policy: Eviction policy name (``composite``, ``lru``, ``lfu``,
+                    ``importance``, ``strength``).
+            protected_tiers: Tier names immune to eviction (default: ``["semantic"]``).
+            importance_threshold: Memories at or above this importance are protected.
+
+        Returns:
+            BudgetReport with eviction details.
+        """
+        from emms.context.budget import MemoryBudget, EvictionPolicy
+        budget = MemoryBudget(
+            self.memory,
+            max_tokens=max_tokens,
+            policy=EvictionPolicy(policy),
+            protected_tiers=protected_tiers,
+            importance_threshold=importance_threshold,
+        )
+        report = budget.enforce(dry_run=dry_run)
+        if not dry_run:
+            self.events.emit("memory.budget_enforced", {
+                "evicted": report.evicted_count,
+                "freed_tokens": report.freed_tokens,
+            })
+        return report
+
+    # ------------------------------------------------------------------
+    # Multi-hop graph reasoning (v0.8.0)
+    # ------------------------------------------------------------------
+
+    def multihop_query(
+        self,
+        seed: str,
+        max_hops: int = 3,
+        max_results: int = 20,
+        min_strength: float = 0.0,
+    ) -> "Any":
+        """Run a multi-hop BFS reasoning query over the knowledge graph.
+
+        Discovers indirect connections between entities across multiple
+        relationship hops.  Requires graph memory to be enabled.
+
+        Args:
+            seed: Seed entity name (case-insensitive).
+            max_hops: Maximum hop depth (default 3).
+            max_results: Maximum reachable entities to return.
+            min_strength: Skip paths with product edge strength below this.
+
+        Returns:
+            MultiHopResult with reachable entities, paths, bridging hubs,
+            and Graphviz DOT export via ``result.to_dot()``.
+        """
+        from emms.memory.multihop import MultiHopGraphReasoner, MultiHopResult
+        if self.graph is None:
+            return MultiHopResult(
+                seed=seed.lower(),
+                reachable=[],
+                paths=[],
+                bridging_entities=[],
+                total_entities_explored=0,
+                max_hops_used=max_hops,
+            )
+        reasoner = MultiHopGraphReasoner(self.graph)
+        return reasoner.query(
+            seed,
+            max_hops=max_hops,
+            max_results=max_results,
+            min_strength=min_strength,
+        )
