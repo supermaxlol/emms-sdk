@@ -1,5 +1,20 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.9.0: Scalability & federation layer
+- CompactionIndex: O(1) dual-hash lookup by id, experience_id, content_hash; auto-wired in EMMS.store()
+- GraphCommunityDetection: Label Propagation Algorithm for topic cluster discovery; modularity Q
+- ExperienceReplay: Prioritized experience replay (PER) with IS weights and alias sampling
+- MemoryFederation: Multi-agent snapshot merge with 3 conflict policies and content-hash dedup
+- MemoryQueryPlanner: Heuristic query decomposition + parallel HybridRetriever + cross-boost merge
+- EMMS facade: get_memory_by_id, get_memory_by_experience_id, find_memories_by_content,
+  rebuild_index, index_stats, graph_communities, graph_community_for_entity,
+  enable_experience_replay, replay_sample, replay_context, replay_top,
+  merge_from, federation_export, plan_retrieve, plan_retrieve_simple
+- MCP tools (5 new): emms_index_lookup, emms_graph_communities, emms_replay_sample,
+  emms_merge_from, emms_plan_retrieve (32 total)
+- CLI commands (7 new): index-lookup, index-stats, graph-communities, replay, replay-top,
+  merge-from, plan-retrieve (35 total)
+
 v0.8.0: Retrieval intelligence layer
 - HybridRetriever: BM25 + embedding cosine fused via Reciprocal Rank Fusion (RRF)
 - MemoryTimeline: chronological reconstruction with gap detection and density histograms
@@ -128,10 +143,15 @@ from emms.retrieval.adaptive import AdaptiveRetriever, StrategyBelief
 from emms.analytics.timeline import MemoryTimeline, TimelineResult, TimelineEvent, TemporalGap, DensityBucket
 from emms.context.budget import MemoryBudget, BudgetReport, EvictionCandidate, EvictionPolicy
 from emms.memory.multihop import MultiHopGraphReasoner, MultiHopResult, HopPath, ReachableEntity
+from emms.storage.index import CompactionIndex
+from emms.memory.communities import GraphCommunityDetector, Community, CommunityResult
+from emms.memory.replay import ExperienceReplay, ReplayEntry, ReplayBatch
+from emms.storage.federation import MemoryFederation, FederationResult, ConflictEntry, ConflictPolicy
+from emms.retrieval.planner import MemoryQueryPlanner, QueryPlan, SubQueryResult
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 __all__ = [
     # Core
     "EMMS",
@@ -224,4 +244,19 @@ __all__ = [
     "MultiHopResult",
     "HopPath",
     "ReachableEntity",
+    # v0.9.0 additions
+    "CompactionIndex",
+    "GraphCommunityDetector",
+    "Community",
+    "CommunityResult",
+    "ExperienceReplay",
+    "ReplayEntry",
+    "ReplayBatch",
+    "MemoryFederation",
+    "FederationResult",
+    "ConflictEntry",
+    "ConflictPolicy",
+    "MemoryQueryPlanner",
+    "QueryPlan",
+    "SubQueryResult",
 ]

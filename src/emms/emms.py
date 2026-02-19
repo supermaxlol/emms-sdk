@@ -56,6 +56,7 @@ from emms.memory.compression import MemoryCompressor, CompressedMemory, PatternD
 from emms.memory.procedural import ProceduralMemory, ProcedureEntry
 from emms.memory.spaced_repetition import SpacedRepetitionSystem
 from emms.core.importance import ImportanceClassifier
+from emms.storage.index import CompactionIndex
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,9 @@ class EMMS:
 
         # v0.6.0: new sub-systems
         self.importance_clf = ImportanceClassifier()
+
+        # v0.9.0: CompactionIndex — O(1) memory lookup
+        self.index = CompactionIndex()
         self.deduplicator = SemanticDeduplicator(
             cosine_threshold=self.cfg.dedup_cosine_threshold,
             lexical_threshold=self.cfg.dedup_lexical_threshold,
@@ -158,6 +162,7 @@ class EMMS:
 
         # 1. Hierarchical memory (also computes embedding if embedder set)
         mem_item = self.memory.store(experience)
+        self.index.register(mem_item)  # v0.9.0: O(1) index
 
         # 2. Consciousness enrichment
         consciousness_data = {}
@@ -1425,3 +1430,231 @@ class EMMS:
             max_results=max_results,
             min_strength=min_strength,
         )
+
+    # ------------------------------------------------------------------
+    # CompactionIndex (v0.9.0)
+    # ------------------------------------------------------------------
+
+    def get_memory_by_id(self, memory_id: str) -> "MemoryItem | None":
+        """O(1) lookup of a MemoryItem by its memory id."""
+        return self.index.get_by_id(memory_id)
+
+    def get_memory_by_experience_id(self, experience_id: str) -> "MemoryItem | None":
+        """O(1) lookup of a MemoryItem by the originating experience id."""
+        return self.index.get_by_experience_id(experience_id)
+
+    def find_memories_by_content(self, content: str) -> "list[MemoryItem]":
+        """Return all MemoryItems whose content hash matches *content*."""
+        return self.index.find_by_content(content)
+
+    def rebuild_index(self) -> int:
+        """Rebuild the CompactionIndex from the current memory state.
+
+        Returns:
+            Number of items registered.
+        """
+        count = self.index.rebuild_from(self.memory)
+        self.events.emit("memory.index_rebuilt", {"items": count})
+        return count
+
+    def index_stats(self) -> dict[str, int]:
+        """Return CompactionIndex statistics."""
+        return self.index.stats()
+
+    # ------------------------------------------------------------------
+    # GraphCommunityDetection (v0.9.0)
+    # ------------------------------------------------------------------
+
+    def graph_communities(
+        self,
+        max_iter: int = 100,
+        seed: int | None = 42,
+        min_community_size: int = 1,
+    ) -> "Any":
+        """Detect communities in the knowledge graph using Label Propagation.
+
+        Args:
+            max_iter: Maximum LPA iterations.
+            seed: Random seed for reproducibility.
+            min_community_size: Merge tiny communities below this size.
+
+        Returns:
+            CommunityResult with community list, modularity Q, bridge entities.
+        """
+        from emms.memory.communities import GraphCommunityDetector, CommunityResult
+        if self.graph is None:
+            return CommunityResult(
+                communities=[],
+                modularity=0.0,
+                total_entities=0,
+                total_edges=0,
+                num_communities=0,
+                converged=True,
+                iterations_used=0,
+                bridge_entities=[],
+            )
+        detector = GraphCommunityDetector(
+            max_iter=max_iter,
+            seed=seed,
+            min_community_size=min_community_size,
+        )
+        return detector.detect(self.graph)
+
+    def graph_community_for_entity(self, entity_name: str) -> "Any | None":
+        """Return the Community containing *entity_name*, or None.
+
+        Args:
+            entity_name: Entity name (case-insensitive).
+
+        Returns:
+            Community dataclass or None if graph disabled / entity not found.
+        """
+        result = self.graph_communities()
+        return result.get_community_for_entity(entity_name)
+
+    # ------------------------------------------------------------------
+    # ExperienceReplay (v0.9.0)
+    # ------------------------------------------------------------------
+
+    def enable_experience_replay(
+        self,
+        alpha: float = 0.6,
+        beta: float = 0.4,
+        seed: int | None = None,
+        **kwargs: Any,
+    ) -> "Any":
+        """Enable and configure the prioritized ExperienceReplay buffer.
+
+        Args:
+            alpha: Priority exponentiation (0=uniform, 1=fully prioritized).
+            beta: IS correction exponent (0=none, 1=full).
+            seed: Random seed for reproducibility.
+            **kwargs: Additional ExperienceReplay constructor kwargs.
+
+        Returns:
+            The configured ExperienceReplay instance.
+        """
+        from emms.memory.replay import ExperienceReplay
+        self._replay = ExperienceReplay(
+            self.memory, alpha=alpha, beta=beta, seed=seed, **kwargs
+        )
+        return self._replay
+
+    def replay_sample(self, k: int = 8, beta: float | None = None) -> "Any":
+        """Draw a mini-batch of k items by priority from experience replay.
+
+        Automatically enables ExperienceReplay with defaults if not configured.
+
+        Args:
+            k: Batch size.
+            beta: IS correction exponent override.
+
+        Returns:
+            ReplayBatch.
+        """
+        if not hasattr(self, "_replay"):
+            self.enable_experience_replay()
+        return self._replay.sample(k=k, beta=beta)
+
+    def replay_context(self, k: int = 5) -> "list[RetrievalResult]":
+        """Sample k items from experience replay as RetrievalResult list."""
+        if not hasattr(self, "_replay"):
+            self.enable_experience_replay()
+        return self._replay.replay_context(k=k)
+
+    def replay_top(self, k: int = 8) -> "list[Any]":
+        """Return the top-k highest-priority items (deterministic)."""
+        if not hasattr(self, "_replay"):
+            self.enable_experience_replay()
+        return self._replay.sample_top(k=k)
+
+    # ------------------------------------------------------------------
+    # MemoryFederation (v0.9.0)
+    # ------------------------------------------------------------------
+
+    def merge_from(
+        self,
+        source: "Any",
+        policy: str = "newest_wins",
+        namespace_prefix: str | None = None,
+        merge_graph: bool = True,
+    ) -> "Any":
+        """Merge memories from another EMMS instance into this one.
+
+        Args:
+            source: Another EMMS instance whose memories are read.
+            policy: Conflict policy (``local_wins``, ``newest_wins``,
+                    ``importance_wins``).
+            namespace_prefix: Prepend this prefix to incoming memory ids.
+            merge_graph: Also merge graph entities/relationships.
+
+        Returns:
+            FederationResult with merge statistics.
+        """
+        from emms.storage.federation import MemoryFederation, ConflictPolicy
+        fed = MemoryFederation(
+            target=self,
+            policy=ConflictPolicy(policy),
+            namespace_prefix=namespace_prefix,
+            merge_graph=merge_graph,
+        )
+        result = fed.merge_from(source)
+        # Re-register merged items in the index
+        self.rebuild_index()
+        self.events.emit("memory.federation_merged", {
+            "items_merged": result.items_merged,
+            "conflicts": len(result.conflicts),
+        })
+        return result
+
+    def federation_export(self) -> "list[MemoryItem]":
+        """Export all MemoryItems as a flat list for sharing with other agents."""
+        from emms.storage.federation import MemoryFederation
+        fed = MemoryFederation(target=self)
+        return fed.export_snapshot()
+
+    # ------------------------------------------------------------------
+    # MemoryQueryPlanner (v0.9.0)
+    # ------------------------------------------------------------------
+
+    def plan_retrieve(
+        self,
+        query: str,
+        max_results: int = 20,
+        max_results_per_sub: int = 10,
+        cross_boost: float = 0.10,
+    ) -> "Any":
+        """Decompose query into sub-queries, retrieve each, cross-boost, merge.
+
+        Args:
+            query: Natural-language query (may contain conjunctions/commas).
+            max_results: Maximum items in the merged result list.
+            max_results_per_sub: Cap per sub-query retrieval.
+            cross_boost: Score bump per additional sub-query that returns an item.
+
+        Returns:
+            QueryPlan with sub-queries, sub-results, merged results, stats.
+        """
+        from emms.retrieval.planner import MemoryQueryPlanner
+        planner = MemoryQueryPlanner(
+            memory=self.memory,
+            max_results_per_sub=max_results_per_sub,
+            max_final_results=max_results,
+            cross_boost=cross_boost,
+            embedder=self.embedder,
+        )
+        return planner.plan_retrieve(query)
+
+    def plan_retrieve_simple(
+        self,
+        query: str,
+        max_results: int = 20,
+    ) -> "list[RetrievalResult]":
+        """Convenience wrapper: plan_retrieve returning only the result list."""
+        from emms.retrieval.planner import MemoryQueryPlanner
+        planner = MemoryQueryPlanner(
+            memory=self.memory,
+            max_final_results=max_results,
+            embedder=self.embedder,
+        )
+        return planner.plan_retrieve_simple(query)

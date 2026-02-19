@@ -424,6 +424,79 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["seed"],
         },
     },
+    # v0.9.0 tools
+    {
+        "name": "emms_index_lookup",
+        "description": "O(1) CompactionIndex lookup: find a MemoryItem by memory_id, experience_id, or content hash.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "Memory item id."},
+                "experience_id": {"type": "string", "description": "Experience id."},
+                "content": {"type": "string", "description": "Content snippet for hash-based lookup."},
+                "action": {
+                    "type": "string",
+                    "default": "lookup",
+                    "description": "lookup | stats | rebuild",
+                },
+            },
+        },
+    },
+    {
+        "name": "emms_graph_communities",
+        "description": "Detect communities (topic clusters) in the knowledge graph using Label Propagation Algorithm.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_iter": {"type": "integer", "default": 100},
+                "min_community_size": {"type": "integer", "default": 1},
+                "entity_name": {"type": "string", "description": "If set, return only the community containing this entity."},
+                "export_markdown": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "emms_replay_sample",
+        "description": "Sample a mini-batch of memories by prioritized experience replay (PER) with IS weights.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "k": {"type": "integer", "default": 8, "description": "Batch size."},
+                "beta": {"type": "number", "default": 0.4, "description": "IS correction exponent."},
+                "top_k": {"type": "boolean", "default": False, "description": "If True, return deterministic top-k by priority."},
+            },
+        },
+    },
+    {
+        "name": "emms_merge_from",
+        "description": "Merge memories from another EMMS snapshot (provided as a JSON list of MemoryItem dicts) into this instance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "policy": {
+                    "type": "string",
+                    "default": "newest_wins",
+                    "description": "Conflict policy: local_wins | newest_wins | importance_wins",
+                },
+                "namespace_prefix": {"type": "string", "description": "Prepend prefix/ to incoming ids to avoid collisions."},
+                "dry_run": {"type": "boolean", "default": False, "description": "If True, count what would be merged without merging."},
+            },
+        },
+    },
+    {
+        "name": "emms_plan_retrieve",
+        "description": "Decompose a complex query into sub-queries, retrieve each independently, cross-boost items appearing in multiple sub-queries, and return a merged ranked list.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "max_results": {"type": "integer", "default": 20},
+                "max_results_per_sub": {"type": "integer", "default": 10},
+                "cross_boost": {"type": "number", "default": 0.10, "description": "Score increment per additional sub-query hit."},
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 
@@ -868,6 +941,150 @@ class EMCPServer:
             out["dot"] = result.to_dot()
         return out
 
+    # ------------------------------------------------------------------
+    # v0.9.0 handlers
+    # ------------------------------------------------------------------
+
+    def _handle_index_lookup(self, args: dict[str, Any]) -> dict[str, Any]:
+        action = args.get("action", "lookup")
+        if action == "stats":
+            return {"stats": self.emms.index_stats()}
+        if action == "rebuild":
+            count = self.emms.rebuild_index()
+            return {"rebuilt": count}
+        # lookup
+        result = None
+        if args.get("memory_id"):
+            item = self.emms.get_memory_by_id(args["memory_id"])
+            result = {"found": item is not None}
+            if item:
+                result["item"] = {
+                    "id": item.id,
+                    "content": item.experience.content[:120],
+                    "tier": item.tier.value,
+                    "importance": item.experience.importance,
+                }
+        elif args.get("experience_id"):
+            item = self.emms.get_memory_by_experience_id(args["experience_id"])
+            result = {"found": item is not None}
+            if item:
+                result["item"] = {
+                    "id": item.id,
+                    "content": item.experience.content[:120],
+                    "tier": item.tier.value,
+                    "importance": item.experience.importance,
+                }
+        elif args.get("content"):
+            items = self.emms.find_memories_by_content(args["content"])
+            result = {"found": len(items) > 0, "count": len(items), "items": [
+                {"id": it.id, "content": it.experience.content[:80]} for it in items[:5]
+            ]}
+        else:
+            result = {"error": "Provide memory_id, experience_id, or content"}
+        return result
+
+    def _handle_graph_communities(self, args: dict[str, Any]) -> dict[str, Any]:
+        entity_name = args.get("entity_name")
+        if entity_name:
+            community = self.emms.graph_community_for_entity(entity_name)
+            if community is None:
+                return {"found": False, "entity": entity_name}
+            return {
+                "found": True,
+                "community_id": community.community_id,
+                "size": community.size,
+                "entities": community.entities[:20],
+                "avg_importance": round(community.avg_importance, 4),
+            }
+        result = self.emms.graph_communities(
+            max_iter=int(args.get("max_iter", 100)),
+            min_community_size=int(args.get("min_community_size", 1)),
+        )
+        out: dict[str, Any] = {
+            "summary": result.summary(),
+            "num_communities": result.num_communities,
+            "modularity": round(result.modularity, 4),
+            "total_entities": result.total_entities,
+            "bridge_entities": result.bridge_entities[:10],
+            "communities": [
+                {
+                    "id": c.community_id,
+                    "size": c.size,
+                    "entities": c.entities[:10],
+                    "avg_importance": round(c.avg_importance, 4),
+                }
+                for c in result.communities[:20]
+            ],
+        }
+        if args.get("export_markdown"):
+            out["markdown"] = result.export_markdown()
+        return out
+
+    def _handle_replay_sample(self, args: dict[str, Any]) -> dict[str, Any]:
+        k = int(args.get("k", 8))
+        if args.get("top_k"):
+            entries = self.emms.replay_top(k=k)
+        else:
+            beta = float(args.get("beta", 0.4))
+            batch = self.emms.replay_sample(k=k, beta=beta)
+            entries = batch.entries
+        return {
+            "count": len(entries),
+            "entries": [
+                {
+                    "id": e.item.id,
+                    "content": e.item.experience.content[:100],
+                    "priority": round(e.priority, 4),
+                    "weight": round(e.weight, 4),
+                    "importance": e.item.experience.importance,
+                }
+                for e in entries
+            ],
+        }
+
+    def _handle_merge_from(self, args: dict[str, Any]) -> dict[str, Any]:
+        # dry_run preview: just report stats without actually merging
+        dry_run = bool(args.get("dry_run", False))
+        if dry_run:
+            items = self.emms.federation_export()
+            return {
+                "dry_run": True,
+                "current_items": len(items),
+                "policy": args.get("policy", "newest_wins"),
+                "namespace_prefix": args.get("namespace_prefix"),
+            }
+        # Without a real source EMMS instance we can only export
+        items = self.emms.federation_export()
+        return {
+            "exported_count": len(items),
+            "policy": args.get("policy", "newest_wins"),
+            "message": "Use EMMS.merge_from(source_emms) to merge from another live instance.",
+        }
+
+    def _handle_plan_retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
+        plan = self.emms.plan_retrieve(
+            query=args["query"],
+            max_results=int(args.get("max_results", 20)),
+            max_results_per_sub=int(args.get("max_results_per_sub", 10)),
+            cross_boost=float(args.get("cross_boost", 0.10)),
+        )
+        return {
+            "summary": plan.summary(),
+            "original_query": plan.original_query,
+            "sub_queries": plan.sub_queries,
+            "total_unique_results": plan.total_unique_results,
+            "cross_boost_count": plan.cross_boost_count,
+            "results": [
+                {
+                    "id": r.memory.id,
+                    "content": r.memory.experience.content[:120],
+                    "score": round(r.score, 4),
+                    "strategy": r.strategy,
+                }
+                for r in plan.merged_results[:20]
+            ],
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -899,4 +1116,10 @@ class EMCPServer:
         "emms_adaptive_retrieve": _handle_adaptive_retrieve,
         "emms_enforce_budget": _handle_enforce_budget,
         "emms_multihop_query": _handle_multihop_query,
+        # v0.9.0 tools
+        "emms_index_lookup": _handle_index_lookup,
+        "emms_graph_communities": _handle_graph_communities,
+        "emms_replay_sample": _handle_replay_sample,
+        "emms_merge_from": _handle_merge_from,
+        "emms_plan_retrieve": _handle_plan_retrieve,
     }

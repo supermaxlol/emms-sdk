@@ -4,6 +4,25 @@ All notable changes to the Enhanced Memory Management System are documented here
 
 ---
 
+## [0.9.0] — 2026-02-20
+
+### Added
+- **`CompactionIndex`** (`storage/index.py`) — O(1) dual-hash lookup index (by `memory_id`, `experience_id`, content-hash SHA-256); `register()`, `remove()`, `find_by_content()`, `bulk_register()`, `rebuild_from()`; auto-wired into `EMMS.__init__` and `EMMS.store()`; `EMMS.get_memory_by_id()`, `get_memory_by_experience_id()`, `find_memories_by_content()`, `rebuild_index()`, `index_stats()` façades
+- **`GraphCommunityDetector`** + **`Community`** + **`CommunityResult`** (`memory/communities.py`) — Label Propagation Algorithm (LPA) for topic-cluster discovery in entity-relationship graph; weighted by `Relationship.strength`; modularity Q computation; `CommunityResult.get_community_for_entity()`, `export_markdown()`, `summary()`; bridge-entity detection; `EMMS.graph_communities()`, `graph_community_for_entity()` façades
+- **`ExperienceReplay`** + **`ReplayEntry`** + **`ReplayBatch`** (`memory/replay.py`) — Prioritized Experience Replay (PER) with Importance Sampling correction weights; priority = `w_imp*I + w_str*S + w_rec*R + w_nov*N`; Vose alias-method O(1) sampling; exclusion window to prevent over-sampling; `sample()`, `sample_top()`, `replay_context()`; `EMMS.enable_experience_replay()`, `replay_sample()`, `replay_context()`, `replay_top()` façades
+- **`MemoryFederation`** + **`FederationResult`** + **`ConflictEntry`** + **`ConflictPolicy`** (`storage/federation.py`) — multi-agent snapshot merge; three conflict policies: `local_wins`, `newest_wins`, `importance_wins`; content-hash deduplication (skip near-identical items); optional `namespace_prefix` for id-space isolation; graph entity/relationship merge; `EMMS.merge_from()`, `federation_export()` façades
+- **`MemoryQueryPlanner`** + **`QueryPlan`** + **`SubQueryResult`** (`retrieval/planner.py`) — heuristic query decomposition (conjunction / comma / question-mark splits); parallel sub-query retrieval via `HybridRetriever`; cross-boost (+0.10 per additional sub-query hit); deduplication by memory id; `QueryPlan.summary()`; `EMMS.plan_retrieve()`, `plan_retrieve_simple()` façades
+- **CLI commands** (7 new, 35 total): `index-lookup`, `index-stats`, `graph-communities`, `replay`, `replay-top`, `merge-from`, `plan-retrieve`
+- **MCP tools** (5 new, 32 total): `emms_index_lookup`, `emms_graph_communities`, `emms_replay_sample`, `emms_merge_from`, `emms_plan_retrieve`
+- 129 new tests in `tests/test_v090_features.py`; total: **912 passed, 2 skipped**
+
+### Changed
+- `__version__` bumped to `0.9.0`
+- `EMMS.store()` now calls `self.index.register(mem_item)` for O(1) future lookups
+- Updated `tests/test_v070_features.py` and `tests/test_v080_features.py` for new tool count (32) and version
+
+---
+
 ## [0.8.0] — 2026-02-19
 
 ### Added

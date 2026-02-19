@@ -514,6 +514,179 @@ def cmd_multihop(args: argparse.Namespace) -> None:
                 print(f"  {name} (score={score:.3f})")
 
 
+def cmd_index_lookup(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    if args.action == "stats":
+        stats = agent.index_stats()
+        if getattr(args, "json", False):
+            print(json.dumps(stats))
+        else:
+            for k, v in stats.items():
+                print(f"  {k}: {v}")
+    elif args.action == "rebuild":
+        count = agent.rebuild_index()
+        print(f"Index rebuilt: {count} items registered.")
+    else:
+        # lookup
+        item = None
+        if args.memory_id:
+            item = agent.get_memory_by_id(args.memory_id)
+        elif args.experience_id:
+            item = agent.get_memory_by_experience_id(args.experience_id)
+        elif args.content:
+            items = agent.find_memories_by_content(args.content)
+            if getattr(args, "json", False):
+                print(json.dumps([
+                    {"id": it.id, "content": it.content[:120], "tier": it.tier.value}
+                    for it in items
+                ]))
+            else:
+                print(f"Found {len(items)} item(s) with matching content hash:")
+                for it in items:
+                    print(f"  [{it.tier.value}] {it.id}: {it.content[:80]}")
+            return
+        if item is None:
+            print("Not found.")
+        else:
+            if getattr(args, "json", False):
+                print(json.dumps({"id": item.id, "content": item.content[:120],
+                                  "tier": item.tier.value, "importance": item.importance}))
+            else:
+                print(f"Found: [{item.tier.value}] {item.id}")
+                print(f"  Content: {item.content[:120]}")
+                print(f"  Importance: {item.importance:.3f}  Strength: {item.memory_strength:.3f}")
+
+
+def cmd_index_stats(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    stats = agent.index_stats()
+    if getattr(args, "json", False):
+        print(json.dumps(stats))
+    else:
+        print("CompactionIndex stats:")
+        for k, v in stats.items():
+            print(f"  {k}: {v}")
+
+
+def cmd_graph_communities(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    result = agent.graph_communities(
+        max_iter=args.max_iter,
+        min_community_size=args.min_size,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "num_communities": result.num_communities,
+            "modularity": result.modularity,
+            "total_entities": result.total_entities,
+            "bridge_entities": result.bridge_entities,
+        }))
+    elif args.markdown:
+        md = result.export_markdown()
+        if args.output:
+            Path(args.output).write_text(md, encoding="utf-8")
+            print(f"Markdown written to {args.output}")
+        else:
+            print(md)
+    else:
+        print(result.summary())
+        print(f"\nTop communities:")
+        for c in sorted(result.communities, key=lambda x: -x.size)[:5]:
+            print(f"  Community {c.community_id} ({c.size} entities, "
+                  f"Q-contribution: internal_str={c.total_internal_strength:.3f})")
+            print(f"    Members: {', '.join(c.entities[:8])}")
+
+
+def cmd_replay(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    batch = agent.replay_sample(k=args.k, beta=args.beta)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "count": batch.batch_size,
+            "mean_priority": round(batch.mean_priority, 4),
+            "entries": [
+                {"id": e.item.id, "content": e.item.content[:100],
+                 "priority": round(e.priority, 4), "weight": round(e.weight, 4)}
+                for e in batch.entries
+            ],
+        }))
+    else:
+        print(f"Sampled {batch.batch_size} items from {batch.total_items_considered} eligible "
+              f"(mean priority={batch.mean_priority:.4f}):")
+        for e in batch.entries:
+            print(f"  prio={e.priority:.4f} w={e.weight:.4f}  {e.item.content[:80]}")
+
+
+def cmd_replay_top(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    entries = agent.replay_top(k=args.k)
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"id": e.item.id, "content": e.item.content[:100], "priority": round(e.priority, 4)}
+            for e in entries
+        ]))
+    else:
+        print(f"Top-{len(entries)} by priority:")
+        for e in entries:
+            print(f"  {e.priority:.4f}  {e.item.content[:80]}")
+
+
+def cmd_merge_from(args: argparse.Namespace) -> None:
+    # Merge from a second memory file
+    agent = _get_emms(args.memory)
+    if not args.source:
+        print("Error: --source/-s required (path to source memory JSON).")
+        return
+    source_agent = _get_emms(args.source)
+    result = agent.merge_from(
+        source_agent,
+        policy=args.policy,
+        namespace_prefix=args.namespace,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "items_merged": result.items_merged,
+            "items_skipped_duplicate": result.items_skipped_duplicate,
+            "items_skipped_conflict": result.items_skipped_conflict_lost,
+            "conflicts": len(result.conflicts),
+        }))
+    else:
+        print(result.summary())
+    if args.memory:
+        agent.save(args.memory)
+        print(f"Saved merged memory to {args.memory}")
+
+
+def cmd_plan_retrieve(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    plan = agent.plan_retrieve(
+        args.query,
+        max_results=args.max,
+        max_results_per_sub=args.max_sub,
+        cross_boost=args.boost,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "sub_queries": plan.sub_queries,
+            "total_unique_results": plan.total_unique_results,
+            "cross_boost_count": plan.cross_boost_count,
+            "results": [
+                {"id": r.memory.id, "score": round(r.score, 4),
+                 "content": r.memory.content[:100], "strategy": r.strategy}
+                for r in plan.merged_results[:args.max]
+            ],
+        }))
+    else:
+        print(plan.summary())
+        print(f"\nSub-queries: {plan.sub_queries}")
+        if plan.merged_results:
+            print(f"\nTop results:")
+            for r in plan.merged_results[:10]:
+                print(f"  [{r.score:.4f}] ({r.strategy}) {r.memory.content[:80]}")
+        else:
+            print("No results found.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -716,6 +889,63 @@ def build_parser() -> argparse.ArgumentParser:
     p_mh.add_argument("--dot", action="store_true", help="Output Graphviz DOT format.")
     p_mh.add_argument("--output", "-o", default=None, help="Write DOT to file.")
     p_mh.set_defaults(func=cmd_multihop)
+
+    # v0.9.0 commands
+
+    # index-lookup
+    p_il = sub.add_parser("index-lookup", help="O(1) CompactionIndex lookup by id, experience_id, or content.")
+    p_il.add_argument("--memory-id", default=None, dest="memory_id")
+    p_il.add_argument("--experience-id", default=None, dest="experience_id")
+    p_il.add_argument("--content", "-c", default=None)
+    p_il.add_argument("--action", default="lookup", choices=["lookup", "stats", "rebuild"])
+    p_il.set_defaults(func=cmd_index_lookup)
+
+    # index-stats
+    p_is = sub.add_parser("index-stats", help="Show CompactionIndex statistics.")
+    p_is.set_defaults(func=cmd_index_stats)
+
+    # graph-communities
+    p_gc = sub.add_parser("graph-communities",
+                           help="Detect communities in the knowledge graph using Label Propagation.")
+    p_gc.add_argument("--max-iter", type=int, default=100, dest="max_iter")
+    p_gc.add_argument("--min-size", type=int, default=1, dest="min_size",
+                      help="Minimum community size (merge smaller into first community).")
+    p_gc.add_argument("--markdown", action="store_true",
+                      help="Output Markdown report.")
+    p_gc.add_argument("--output", "-o", default=None, help="Write Markdown to file.")
+    p_gc.set_defaults(func=cmd_graph_communities)
+
+    # replay
+    p_rep = sub.add_parser("replay", help="Sample a mini-batch by prioritized experience replay.")
+    p_rep.add_argument("--k", type=int, default=8, help="Batch size.")
+    p_rep.add_argument("--beta", type=float, default=0.4, help="IS correction exponent.")
+    p_rep.set_defaults(func=cmd_replay)
+
+    # replay-top
+    p_rept = sub.add_parser("replay-top", help="Show top-k highest-priority memories (deterministic).")
+    p_rept.add_argument("--k", type=int, default=8)
+    p_rept.set_defaults(func=cmd_replay_top)
+
+    # merge-from
+    p_mf = sub.add_parser("merge-from", help="Merge memories from another EMMS memory file.")
+    p_mf.add_argument("--source", "-s", default=None,
+                      help="Path to source memory JSON file.")
+    p_mf.add_argument("--policy", default="newest_wins",
+                      choices=["local_wins", "newest_wins", "importance_wins"])
+    p_mf.add_argument("--namespace", default=None,
+                      help="Prepend prefix/ to incoming ids.")
+    p_mf.set_defaults(func=cmd_merge_from)
+
+    # plan-retrieve
+    p_pr = sub.add_parser("plan-retrieve",
+                           help="Decompose query, retrieve per sub-query, cross-boost, merge.")
+    p_pr.add_argument("query")
+    p_pr.add_argument("--max", "-n", type=int, default=20)
+    p_pr.add_argument("--max-sub", type=int, default=10, dest="max_sub",
+                      help="Max results per sub-query.")
+    p_pr.add_argument("--boost", type=float, default=0.10,
+                      help="Cross-boost increment per additional sub-query hit.")
+    p_pr.set_defaults(func=cmd_plan_retrieve)
 
     return parser
 
