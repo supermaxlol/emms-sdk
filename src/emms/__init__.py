@@ -1,5 +1,27 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.14.0: The Temporal Mind
+- EpisodicBuffer: structured session-as-episode storage; Episode objects with
+  temporal boundaries (opened_at, closed_at), emotional arc per turn, key memory
+  IDs, turn count, and outcome; open/close/record_turn lifecycle; JSON persist;
+  EMMS façades: open_episode, close_episode, record_episode_turn, recent_episodes,
+  current_episode
+- SchemaExtractor: abstract pattern extraction from concrete memories; keyword
+  frequency analysis with stop-word filtering; greedy clustering by shared
+  keywords; template-based pattern description; Schema with domain/confidence/
+  supporting_memory_ids; EMMS façade: extract_schemas
+- MotivatedForgetting: goal-directed active memory suppression; suppress() targets
+  a specific memory by ID; forget_domain() suppresses all memories in a domain;
+  forget_below_confidence() evicts low-confidence memories (uses MetacognitionEngine
+  if enabled); resolve_contradiction() weakens the losing side of a contradiction;
+  pruning when strength < prune_threshold; ForgettingReport with per-item results;
+  EMMS façades: forget_memory, forget_domain, forget_below_confidence,
+  resolve_memory_contradiction
+- MCP tools (5 new): emms_open_episode, emms_close_episode, emms_recent_episodes,
+  emms_extract_schemas, emms_forget (57 total)
+- CLI commands (5 new): open-episode, close-episode, recent-episodes,
+  extract-schemas, forget (61 total)
+
 v0.13.0: The Metacognitive Layer
 - MetacognitionEngine: assesses epistemic confidence per memory via weighted
   geometric mean of strength/recency/access/consolidation factors; knowledge_map()
@@ -227,10 +249,13 @@ from emms.retrieval.associative import AssociativeRetriever, AssociativeResult
 from emms.memory.metacognition import MetacognitionEngine, MetacognitionReport, MemoryConfidence, DomainProfile, ContradictionPair
 from emms.memory.prospection import ProspectiveMemory, Intention, IntentionActivation
 from emms.retrieval.contextual import ContextualSalienceRetriever, SalienceResult
+from emms.memory.episodic import EpisodicBuffer, Episode
+from emms.memory.schema import SchemaExtractor, Schema, SchemaReport
+from emms.memory.forgetting import MotivatedForgetting, ForgettingResult, ForgettingReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 __all__ = [
     # Core
     "EMMS",
@@ -348,6 +373,15 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.14.0 additions
+    "EpisodicBuffer",
+    "Episode",
+    "SchemaExtractor",
+    "Schema",
+    "SchemaReport",
+    "MotivatedForgetting",
+    "ForgettingResult",
+    "ForgettingReport",
     # v0.13.0 additions
     "MetacognitionEngine",
     "MetacognitionReport",

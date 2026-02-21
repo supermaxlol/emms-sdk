@@ -2451,3 +2451,182 @@ class EMMS:
         if not hasattr(self, "_contextual_retriever"):
             return "(contextual retrieval not enabled)"
         return self._contextual_retriever.context_summary
+
+    # ------------------------------------------------------------------
+    # EpisodicBuffer (v0.14.0)
+    # ------------------------------------------------------------------
+
+    def open_episode(
+        self,
+        session_id: Optional[str] = None,
+        topic: str = "",
+    ) -> "Any":
+        """Open a new bounded episode in the episodic buffer.
+
+        Automatically closes any currently open episode first.
+
+        Args:
+            session_id: Optional session label (auto-generated if omitted).
+            topic:      Brief description of what this episode is about.
+
+        Returns:
+            The newly created :class:`Episode`.
+        """
+        if not hasattr(self, "_episodic_buffer"):
+            from emms.memory.episodic import EpisodicBuffer
+            self._episodic_buffer = EpisodicBuffer()
+        return self._episodic_buffer.open_episode(session_id=session_id, topic=topic)
+
+    def close_episode(
+        self,
+        episode_id: Optional[str] = None,
+        outcome: str = "",
+    ) -> "Any":
+        """Close an episode, computing final statistics.
+
+        Args:
+            episode_id: Episode to close.  Defaults to the current open episode.
+            outcome:    Brief description of how the episode resolved.
+
+        Returns:
+            The closed :class:`Episode`, or ``None`` if none was open.
+        """
+        if not hasattr(self, "_episodic_buffer"):
+            return None
+        return self._episodic_buffer.close_episode(episode_id=episode_id, outcome=outcome)
+
+    def record_episode_turn(
+        self,
+        content: str = "",
+        valence: float = 0.0,
+        episode_id: Optional[str] = None,
+    ) -> None:
+        """Record a conversational turn within the current episode.
+
+        Args:
+            content: Turn text (used to update turn count).
+            valence: Emotional valence of this turn (−1..1).
+            episode_id: Episode to record into.  Defaults to current.
+        """
+        if not hasattr(self, "_episodic_buffer"):
+            return
+        self._episodic_buffer.record_turn(
+            episode_id=episode_id, content=content, valence=valence
+        )
+
+    def recent_episodes(self, n: int = 10) -> "Any":
+        """Return the *n* most recent episodes, newest first.
+
+        Args:
+            n: Number of episodes to return (default 10).
+
+        Returns:
+            List of :class:`Episode` objects.
+        """
+        if not hasattr(self, "_episodic_buffer"):
+            return []
+        return self._episodic_buffer.recent_episodes(n=n)
+
+    def current_episode(self) -> "Any":
+        """Return the currently open episode, or ``None``."""
+        if not hasattr(self, "_episodic_buffer"):
+            return None
+        return self._episodic_buffer.current_episode()
+
+    # ------------------------------------------------------------------
+    # SchemaExtractor (v0.14.0)
+    # ------------------------------------------------------------------
+
+    def extract_schemas(
+        self,
+        domain: Optional[str] = None,
+        max_schemas: Optional[int] = None,
+    ) -> "Any":
+        """Extract abstract knowledge schemas from stored memories.
+
+        Finds recurring keyword clusters across memories and synthesises a
+        concise pattern description for each cluster.
+
+        Args:
+            domain:      Restrict to one domain (``None`` = all domains).
+            max_schemas: Maximum schemas to return (default 12).
+
+        Returns:
+            :class:`SchemaReport` with extracted schemas.
+        """
+        from emms.memory.schema import SchemaExtractor
+        extractor = SchemaExtractor(self.memory)
+        return extractor.extract(domain=domain, max_schemas=max_schemas)
+
+    # ------------------------------------------------------------------
+    # MotivatedForgetting (v0.14.0)
+    # ------------------------------------------------------------------
+
+    def forget_memory(self, memory_id: str) -> "Any":
+        """Suppress a specific memory by ID.
+
+        Reduces its strength by the default suppression rate; prunes it
+        entirely if strength falls below the prune threshold.
+
+        Args:
+            memory_id: ``id`` or ``experience.id`` of the target memory.
+
+        Returns:
+            :class:`ForgettingResult`, or ``None`` if not found.
+        """
+        from emms.memory.forgetting import MotivatedForgetting
+        mf = MotivatedForgetting(self.memory)
+        return mf.suppress(memory_id)
+
+    def forget_domain(
+        self,
+        domain: str,
+        rate: float = 0.4,
+    ) -> "Any":
+        """Suppress all memories in a domain.
+
+        Args:
+            domain: Domain name to target.
+            rate:   Suppression rate (default 0.4 → strength × 0.6).
+
+        Returns:
+            :class:`ForgettingReport` describing every action taken.
+        """
+        from emms.memory.forgetting import MotivatedForgetting
+        mf = MotivatedForgetting(self.memory, suppression_rate=rate)
+        return mf.forget_domain(domain, rate=rate)
+
+    def forget_below_confidence(
+        self,
+        threshold: float = 0.3,
+    ) -> "Any":
+        """Suppress memories whose confidence falls below a threshold.
+
+        Uses the MetacognitionEngine if already enabled, otherwise falls back
+        to raw ``memory_strength``.
+
+        Args:
+            threshold: Minimum confidence to retain (default 0.3).
+
+        Returns:
+            :class:`ForgettingReport` describing every action taken.
+        """
+        from emms.memory.forgetting import MotivatedForgetting
+        mf = MotivatedForgetting(self.memory)
+        meta = getattr(self, "_metacognition_engine", None)
+        return mf.forget_below_confidence(threshold=threshold, metacognition_engine=meta)
+
+    def resolve_memory_contradiction(self, weaker_id: str) -> "Any":
+        """Suppress the weaker side of a detected memory contradiction.
+
+        Use :meth:`find_contradictions` first to identify the weaker memory ID.
+
+        Args:
+            weaker_id: Memory ID of the less-trusted / weaker memory.
+
+        Returns:
+            :class:`ForgettingResult`, or ``None`` if not found.
+        """
+        from emms.memory.forgetting import MotivatedForgetting
+        mf = MotivatedForgetting(self.memory)
+        return mf.resolve_contradiction(weaker_id)

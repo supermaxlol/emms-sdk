@@ -725,6 +725,63 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["current_context"],
         },
     },
+    # v0.14.0 tools
+    {
+        "name": "emms_open_episode",
+        "description": "Open a new bounded episode in the episodic buffer. Records temporal boundaries, emotional arc, and key memories for this session segment.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "Brief description of what this episode is about."},
+                "session_id": {"type": "string", "description": "Optional session label (auto-generated if omitted)."},
+            },
+        },
+    },
+    {
+        "name": "emms_close_episode",
+        "description": "Close the current episode, computing final statistics (mean/peak valence, duration). Provide a brief outcome description.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "outcome": {"type": "string", "description": "Brief description of how the episode resolved."},
+                "episode_id": {"type": "string", "description": "Episode to close (default: current open episode)."},
+            },
+        },
+    },
+    {
+        "name": "emms_recent_episodes",
+        "description": "Return the N most recent episodes from the episodic buffer, newest first.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "default": 10, "description": "Number of episodes to return."},
+            },
+        },
+    },
+    {
+        "name": "emms_extract_schemas",
+        "description": "Extract abstract knowledge schemas from stored memories — recurring keyword clusters become transferable patterns.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to one domain (omit for all)."},
+                "max_schemas": {"type": "integer", "default": 12, "description": "Maximum schemas to return."},
+            },
+        },
+    },
+    {
+        "name": "emms_forget",
+        "description": "Suppress or prune memories. Target a specific ID, a whole domain, or memories below a confidence threshold.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "Suppress a specific memory by ID."},
+                "domain": {"type": "string", "description": "Suppress all memories in this domain."},
+                "below_confidence": {"type": "number", "description": "Suppress memories whose confidence is below this threshold (0–1)."},
+                "suppression_rate": {"type": "number", "default": 0.4, "description": "Fraction to reduce strength by (default 0.4)."},
+            },
+        },
+    },
 ]
 
 
@@ -1721,6 +1778,121 @@ class EMCPServer:
             "summary": record.summary(),
         }
 
+    # v0.14.0 handlers
+
+    def _handle_open_episode(self, args: dict[str, Any]) -> dict[str, Any]:
+        ep = self.emms.open_episode(
+            session_id=args.get("session_id"),
+            topic=args.get("topic", ""),
+        )
+        return {
+            "episode_id": ep.id,
+            "session_id": ep.session_id,
+            "topic": ep.topic,
+            "opened_at": ep.opened_at,
+        }
+
+    def _handle_close_episode(self, args: dict[str, Any]) -> dict[str, Any]:
+        ep = self.emms.close_episode(
+            episode_id=args.get("episode_id"),
+            outcome=args.get("outcome", ""),
+        )
+        if ep is None:
+            return {"closed": False, "reason": "No open episode found."}
+        return {
+            "closed": True,
+            "episode_id": ep.id,
+            "outcome": ep.outcome,
+            "turn_count": ep.turn_count,
+            "duration_seconds": ep.duration_seconds,
+            "mean_valence": round(ep.mean_valence, 4),
+            "peak_valence": round(ep.peak_valence, 4),
+            "summary": ep.summary(),
+        }
+
+    def _handle_recent_episodes(self, args: dict[str, Any]) -> dict[str, Any]:
+        episodes = self.emms.recent_episodes(n=int(args.get("n", 10)))
+        return {
+            "episodes": [
+                {
+                    "episode_id": ep.id,
+                    "topic": ep.topic,
+                    "turn_count": ep.turn_count,
+                    "is_open": ep.is_open,
+                    "duration_seconds": ep.duration_seconds,
+                    "mean_valence": round(ep.mean_valence, 4),
+                    "outcome": ep.outcome,
+                    "summary": ep.summary(),
+                }
+                for ep in episodes
+            ],
+            "total": len(episodes),
+        }
+
+    def _handle_extract_schemas(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.extract_schemas(
+            domain=args.get("domain"),
+            max_schemas=args.get("max_schemas"),
+        )
+        return {
+            "total_memories_analyzed": report.total_memories_analyzed,
+            "schemas_found": report.schemas_found,
+            "duration_seconds": round(report.duration_seconds, 4),
+            "schemas": [
+                {
+                    "schema_id": s.id,
+                    "domain": s.domain,
+                    "pattern": s.pattern,
+                    "keywords": s.keywords,
+                    "confidence": round(s.confidence, 4),
+                    "support": len(s.supporting_memory_ids),
+                }
+                for s in report.schemas
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_forget(self, args: dict[str, Any]) -> dict[str, Any]:
+        memory_id = args.get("memory_id")
+        domain = args.get("domain")
+        below_conf = args.get("below_confidence")
+        rate = float(args.get("suppression_rate", 0.4))
+
+        if memory_id:
+            from emms.memory.forgetting import MotivatedForgetting
+            mf = MotivatedForgetting(self.emms.memory, suppression_rate=rate)
+            result = mf.suppress(memory_id)
+            if result is None:
+                return {"success": False, "reason": f"Memory {memory_id!r} not found."}
+            return {
+                "success": True,
+                "memory_id": result.memory_id,
+                "pruned": result.pruned,
+                "old_strength": round(result.old_strength, 4),
+                "new_strength": round(result.new_strength, 4),
+                "reason": result.reason,
+            }
+
+        if domain:
+            report = self.emms.forget_domain(domain, rate=rate)
+            return {
+                "total_targeted": report.total_targeted,
+                "suppressed": report.suppressed,
+                "pruned": report.pruned,
+                "summary": report.summary(),
+            }
+
+        if below_conf is not None:
+            report = self.emms.forget_below_confidence(threshold=float(below_conf))
+            return {
+                "total_targeted": report.total_targeted,
+                "suppressed": report.suppressed,
+                "pruned": report.pruned,
+                "summary": report.summary(),
+            }
+
+        return {"success": False, "reason": "Provide memory_id, domain, or below_confidence."}
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -1782,4 +1954,10 @@ class EMCPServer:
         "emms_discover_insights": _handle_discover_insights,
         "emms_associative_retrieve": _handle_associative_retrieve,
         "emms_association_stats": _handle_association_stats,
+        # v0.14.0 tools
+        "emms_open_episode": _handle_open_episode,
+        "emms_close_episode": _handle_close_episode,
+        "emms_recent_episodes": _handle_recent_episodes,
+        "emms_extract_schemas": _handle_extract_schemas,
+        "emms_forget": _handle_forget,
     }

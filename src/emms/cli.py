@@ -1178,6 +1178,135 @@ def cmd_association_stats(args: argparse.Namespace) -> None:
         print(stats.summary())
 
 
+# ---------------------------------------------------------------------------
+# v0.14.0 command handlers
+# ---------------------------------------------------------------------------
+
+def cmd_open_episode(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    ep = agent.open_episode(session_id=args.session_id, topic=args.topic)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "episode_id": ep.id,
+            "session_id": ep.session_id,
+            "topic": ep.topic,
+            "opened_at": ep.opened_at,
+        }))
+    else:
+        print(f"Opened episode [{ep.id}]")
+        if ep.topic:
+            print(f"  Topic:      {ep.topic}")
+        print(f"  Session:    {ep.session_id}")
+
+
+def cmd_close_episode(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    ep = agent.close_episode(outcome=args.outcome)
+    if ep is None:
+        print("No open episode to close.")
+        return
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "episode_id": ep.id,
+            "outcome": ep.outcome,
+            "turn_count": ep.turn_count,
+            "duration_seconds": ep.duration_seconds,
+            "mean_valence": round(ep.mean_valence, 4),
+            "peak_valence": round(ep.peak_valence, 4),
+        }))
+    else:
+        print(ep.summary())
+        if ep.outcome:
+            print(f"  Outcome: {ep.outcome}")
+
+
+def cmd_recent_episodes(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    episodes = agent.recent_episodes(n=args.n)
+    if not episodes:
+        print("No episodes recorded yet.")
+        return
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {
+                "episode_id": ep.id, "topic": ep.topic,
+                "turn_count": ep.turn_count, "is_open": ep.is_open,
+                "duration_seconds": ep.duration_seconds,
+                "mean_valence": round(ep.mean_valence, 4),
+                "outcome": ep.outcome,
+            }
+            for ep in episodes
+        ]))
+    else:
+        print(f"Recent episodes ({len(episodes)}):\n")
+        for ep in episodes:
+            print(f"  {ep.summary()}")
+
+
+def cmd_extract_schemas(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.extract_schemas(
+        domain=args.domain,
+        max_schemas=args.max_schemas,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_memories_analyzed": report.total_memories_analyzed,
+            "schemas_found": report.schemas_found,
+            "schemas": [
+                {
+                    "schema_id": s.id, "domain": s.domain,
+                    "pattern": s.pattern, "keywords": s.keywords,
+                    "confidence": round(s.confidence, 4),
+                    "support": len(s.supporting_memory_ids),
+                }
+                for s in report.schemas
+            ],
+        }))
+    else:
+        print(report.summary())
+        for s in report.schemas:
+            print()
+            print(s.summary())
+
+
+def cmd_forget(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    if args.memory_id:
+        result = agent.forget_memory(args.memory_id)
+        if result is None:
+            print(f"Memory {args.memory_id!r} not found.")
+            return
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "memory_id": result.memory_id, "pruned": result.pruned,
+                "old_strength": round(result.old_strength, 4),
+                "new_strength": round(result.new_strength, 4),
+            }))
+        else:
+            print(result.summary())
+    elif args.domain:
+        report = agent.forget_domain(args.domain, rate=args.rate)
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "total_targeted": report.total_targeted,
+                "suppressed": report.suppressed, "pruned": report.pruned,
+            }))
+        else:
+            print(report.summary())
+    elif args.below_confidence is not None:
+        report = agent.forget_below_confidence(threshold=args.below_confidence)
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "total_targeted": report.total_targeted,
+                "suppressed": report.suppressed, "pruned": report.pruned,
+            }))
+        else:
+            print(report.summary())
+    else:
+        print("Provide --memory-id, --domain, or --below-confidence.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -1633,6 +1762,53 @@ def build_parser() -> argparse.ArgumentParser:
     p_as2 = sub.add_parser("association-stats",
                             help="Show statistics for the current association graph.")
     p_as2.set_defaults(func=cmd_association_stats)
+
+    # v0.14.0 commands
+
+    # open-episode
+    p_oe = sub.add_parser("open-episode",
+                           help="Open a new bounded episode in the episodic buffer.")
+    p_oe.add_argument("--topic", default="", help="Brief description of the episode topic.")
+    p_oe.add_argument("--session-id", default=None, dest="session_id",
+                      help="Optional session label (auto-generated if omitted).")
+    p_oe.set_defaults(func=cmd_open_episode)
+
+    # close-episode
+    p_ce = sub.add_parser("close-episode",
+                           help="Close the current episode and compute final statistics.")
+    p_ce.add_argument("--outcome", default="", help="Brief resolution description.")
+    p_ce.set_defaults(func=cmd_close_episode)
+
+    # recent-episodes
+    p_re = sub.add_parser("recent-episodes",
+                           help="List the N most recent episodes from the episodic buffer.")
+    p_re.add_argument("-n", type=int, default=10,
+                      help="Number of episodes to return (default 10).")
+    p_re.set_defaults(func=cmd_recent_episodes)
+
+    # extract-schemas
+    p_es = sub.add_parser("extract-schemas",
+                           help="Extract abstract knowledge schemas from memory via keyword clustering.")
+    p_es.add_argument("--domain", default=None,
+                      help="Restrict to one domain (default: all).")
+    p_es.add_argument("--max-schemas", type=int, default=12, dest="max_schemas",
+                      help="Maximum schemas to return (default 12).")
+    p_es.set_defaults(func=cmd_extract_schemas)
+
+    # forget
+    p_fg = sub.add_parser("forget",
+                           help="Suppress or prune memories (targeted, domain-wide, or by confidence).")
+    target_grp = p_fg.add_mutually_exclusive_group()
+    target_grp.add_argument("--memory-id", default=None, dest="memory_id",
+                             help="Suppress a specific memory by ID.")
+    target_grp.add_argument("--domain", default=None,
+                             help="Suppress all memories in a domain.")
+    target_grp.add_argument("--below-confidence", type=float, default=None,
+                             dest="below_confidence",
+                             help="Suppress memories below this confidence threshold (0–1).")
+    p_fg.add_argument("--rate", type=float, default=0.4,
+                      help="Suppression rate (default 0.4).")
+    p_fg.set_defaults(func=cmd_forget)
 
     return parser
 

@@ -4,6 +4,18 @@ All notable changes to the Enhanced Memory Management System are documented here
 
 ---
 
+## [0.14.0] — 2026-02-22
+
+### Added
+- **`EpisodicBuffer`** + **`Episode`** (`memory/episodic.py`) — structured session-as-episode storage; `Episode` objects carry temporal boundaries (`opened_at`, `closed_at`), `emotional_arc` (valence per recorded turn), `key_memory_ids`, `turn_count`, and `outcome`; `open_episode(session_id, topic)` auto-closes any currently open episode and seeds a fresh one; `record_turn(content, valence)` appends to the arc (valence clipped to −1..1); `close_episode(outcome)` finalises `mean_valence` and `peak_valence`; `add_memory(id)` links memory IDs to the active episode; `recent_episodes(n)` returns newest-first; `save(path)` / `load(path)` JSON persistence; biological analogue: hippocampal episodic memory (Tulving 1972) — "mental time travel"; EMMS façades: `open_episode`, `close_episode`, `record_episode_turn`, `recent_episodes`, `current_episode`
+- **`SchemaExtractor`** + **`Schema`** + **`SchemaReport`** (`memory/schema.py`) — abstract knowledge schema extraction from concrete memories; tokenises memory content, strips stop-words (50-word frozenset) and short tokens; builds keyword frequency table across memories; seeds on keywords appearing in ≥ `min_support` distinct memories (default 2); greedy cluster assignment by most-frequent shared keyword; computes shared keywords within each cluster; synthesises concise pattern description from three templates; `Schema` carries `domain`, `pattern`, `keywords`, `confidence` (support fraction), `supporting_memory_ids`; `SchemaReport.summary()` lists top schemas; biological analogue: schema theory (Bartlett 1932) — abstract generalisation from repeated episodic experience into semantic knowledge; EMMS façade: `extract_schemas(domain, max_schemas)`
+- **`MotivatedForgetting`** + **`ForgettingResult`** + **`ForgettingReport`** (`memory/forgetting.py`) — goal-directed active memory suppression; `suppress(memory_id)` finds a memory across all tiers and multiplies its strength by `(1 − suppression_rate)` (default 0.4); `forget_domain(domain, rate)` applies suppression to all memories in a named domain; `forget_below_confidence(threshold, metacognition_engine)` uses `MetacognitionEngine.assess_all()` when available (otherwise falls back to raw `memory_strength`) to evict low-confidence memories; `resolve_contradiction(weaker_id)` suppresses the losing side of a detected contradiction pair; items whose strength after suppression falls below `prune_threshold` (default 0.05) are evicted from their tier entirely; `ForgettingReport` carries `total_targeted`, `suppressed`, `pruned`, per-item `results`, and `summary()`; biological analogue: prefrontal-hippocampal inhibitory control (Anderson & Green 2001); directed forgetting (Bjork 1972); EMMS façades: `forget_memory`, `forget_domain`, `forget_below_confidence`, `resolve_memory_contradiction`
+- **CLI commands** (5 new, 61 total): `open-episode`, `close-episode`, `recent-episodes`, `extract-schemas`, `forget`
+- **MCP tools** (5 new, 57 total): `emms_open_episode`, `emms_close_episode`, `emms_recent_episodes`, `emms_extract_schemas`, `emms_forget`
+- 92 new tests in `tests/test_v140_features.py`; total: **1339 passed, 2 skipped**
+
+---
+
 ## [0.13.0] — 2026-02-22
 
 ### Added

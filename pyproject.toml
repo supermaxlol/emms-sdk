@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "emms"
-version = "0.13.0"
-description = "Enhanced Memory Management System — epistemic confidence metacognition, prospective intention memory, contextual salience retrieval, associative graph spreading activation, cross-domain insight generation, dream consolidation, session bridging, temporal annealing, biological reconsolidation, affective retrieval, presence tracking, O(1) CompactionIndex, graph community detection, prioritized experience replay, multi-agent federation, query planning, hybrid retrieval (BM25+RRF), adaptive Thompson Sampling, and LLM consolidation for AI agents"
+version = "0.14.0"
+description = "Enhanced Memory Management System — episodic buffer with emotional arc, schema extraction from memory patterns, motivated forgetting with active suppression, epistemic confidence metacognition, prospective intention memory, contextual salience retrieval, associative graph spreading activation, cross-domain insight generation, dream consolidation, session bridging, temporal annealing, biological reconsolidation, affective retrieval, presence tracking, O(1) CompactionIndex, graph community detection, prioritized experience replay, multi-agent federation, query planning, hybrid retrieval (BM25+RRF), adaptive Thompson Sampling, and LLM consolidation for AI agents"
 authors = [{name = "Shehzad Ahmed"}]
 license = {text = "MIT"}
 readme = "README.md"
