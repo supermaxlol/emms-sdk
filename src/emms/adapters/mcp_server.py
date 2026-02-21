@@ -782,6 +782,65 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    # v0.15.0 tools
+    {
+        "name": "emms_reflect",
+        "description": "Run a structured self-reflection pass: reviews high-importance memories and recent episodes, synthesises lessons, stores them as reflection memories, and surfaces open questions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "description": "Label for this reflection session (auto-generated if omitted)."},
+                "domain": {"type": "string", "description": "Restrict reflection to one domain (omit for all)."},
+                "lookback_episodes": {"type": "integer", "default": 5, "description": "Number of recent episodes to incorporate."},
+            },
+        },
+    },
+    {
+        "name": "emms_weave_narrative",
+        "description": "Weave autobiographical narrative threads from stored memories — groups by domain, sorts chronologically, and generates readable first-person prose.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to one domain (omit for all)."},
+                "max_threads": {"type": "integer", "default": 8, "description": "Maximum narrative threads to return."},
+            },
+        },
+    },
+    {
+        "name": "emms_narrative_threads",
+        "description": "Return narrative threads for one or all domains, longest first.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to one domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_source_audit",
+        "description": "Audit memories for source uncertainty and confabulation risk. Returns flagged memories whose source confidence falls below the threshold.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "flag_threshold": {"type": "number", "default": 0.5, "description": "Confidence below which a memory is flagged (0–1)."},
+                "max_flagged": {"type": "integer", "default": 20, "description": "Maximum flagged entries to return."},
+            },
+        },
+    },
+    {
+        "name": "emms_tag_source",
+        "description": "Assign a provenance tag to a memory: observation, inference, instruction, reflection, dream, insight, or unknown.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "Memory ID to tag."},
+                "source_type": {"type": "string", "enum": ["observation", "inference", "instruction", "reflection", "dream", "insight", "unknown"], "description": "Memory provenance type."},
+                "confidence": {"type": "number", "default": 0.8, "description": "Confidence in this attribution (0–1)."},
+                "note": {"type": "string", "default": "", "description": "Optional free-text provenance note."},
+            },
+            "required": ["memory_id", "source_type"],
+        },
+    },
 ]
 
 
@@ -1893,6 +1952,113 @@ class EMCPServer:
 
         return {"success": False, "reason": "Provide memory_id, domain, or below_confidence."}
 
+    # v0.15.0 handlers
+
+    def _handle_reflect(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.reflect(
+            session_id=args.get("session_id"),
+            domain=args.get("domain"),
+            lookback_episodes=int(args.get("lookback_episodes", 5)),
+        )
+        return {
+            "session_id": report.session_id,
+            "memories_reviewed": report.memories_reviewed,
+            "episodes_reviewed": report.episodes_reviewed,
+            "lessons_count": len(report.lessons),
+            "new_memory_ids": report.new_memory_ids,
+            "lessons": [
+                {
+                    "lesson_id": l.id,
+                    "domain": l.domain,
+                    "lesson_type": l.lesson_type,
+                    "confidence": round(l.confidence, 4),
+                    "content": l.content,
+                    "support": len(l.supporting_ids),
+                }
+                for l in report.lessons
+            ],
+            "open_questions": report.open_questions,
+            "duration_seconds": round(report.duration_seconds, 4),
+            "summary": report.summary(),
+        }
+
+    def _handle_weave_narrative(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.weave_narrative(
+            domain=args.get("domain"),
+            max_threads=int(args.get("max_threads", 8)),
+        )
+        return {
+            "total_threads": report.total_threads,
+            "total_segments": report.total_segments,
+            "threads": [
+                {
+                    "thread_id": t.id,
+                    "theme": t.theme,
+                    "domain": t.domain,
+                    "segments": len(t.segments),
+                    "span_seconds": round(t.span_seconds, 1),
+                    "story_excerpt": t.story()[:200],
+                    "arc": [round(v, 3) for v in t.arc],
+                }
+                for t in report.threads
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_narrative_threads(self, args: dict[str, Any]) -> dict[str, Any]:
+        threads = self.emms.narrative_threads(domain=args.get("domain"))
+        return {
+            "threads": [
+                {
+                    "thread_id": t.id,
+                    "theme": t.theme,
+                    "domain": t.domain,
+                    "segments": len(t.segments),
+                    "span_seconds": round(t.span_seconds, 1),
+                    "story": t.story(),
+                    "summary": t.summary(),
+                }
+                for t in threads
+            ],
+            "total": len(threads),
+        }
+
+    def _handle_source_audit(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.source_audit(
+            flag_threshold=float(args.get("flag_threshold", 0.5)),
+        )
+        return {
+            "total_audited": report.total_audited,
+            "flagged_count": report.flagged_count,
+            "source_distribution": report.source_distribution,
+            "high_risk": [
+                {
+                    "memory_id": e.memory_id,
+                    "source_type": e.source_type,
+                    "confidence": round(e.source_confidence, 4),
+                    "flag_reason": e.flag_reason,
+                    "excerpt": e.content_excerpt[:80],
+                }
+                for e in report.high_risk_entries[:int(args.get("max_flagged", 20))]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_tag_source(self, args: dict[str, Any]) -> dict[str, Any]:
+        tag = self.emms.tag_memory_source(
+            memory_id=args["memory_id"],
+            source_type=args["source_type"],
+            confidence=float(args.get("confidence", 0.8)),
+            note=args.get("note", ""),
+        )
+        return {
+            "memory_id": tag.memory_id,
+            "source_type": tag.source_type,
+            "confidence": round(tag.confidence, 4),
+            "provenance_note": tag.provenance_note,
+            "tagged_at": tag.tagged_at,
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -1960,4 +2126,10 @@ class EMCPServer:
         "emms_recent_episodes": _handle_recent_episodes,
         "emms_extract_schemas": _handle_extract_schemas,
         "emms_forget": _handle_forget,
+        # v0.15.0 tools
+        "emms_reflect": _handle_reflect,
+        "emms_weave_narrative": _handle_weave_narrative,
+        "emms_narrative_threads": _handle_narrative_threads,
+        "emms_source_audit": _handle_source_audit,
+        "emms_tag_source": _handle_tag_source,
     }

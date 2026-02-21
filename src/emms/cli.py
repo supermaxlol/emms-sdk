@@ -1307,6 +1307,116 @@ def cmd_forget(args: argparse.Namespace) -> None:
         print("Provide --memory-id, --domain, or --below-confidence.")
 
 
+# ---------------------------------------------------------------------------
+# v0.15.0 command handlers
+# ---------------------------------------------------------------------------
+
+def cmd_reflect(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.reflect(
+        domain=args.domain,
+        lookback_episodes=args.lookback_episodes,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "session_id": report.session_id,
+            "memories_reviewed": report.memories_reviewed,
+            "episodes_reviewed": report.episodes_reviewed,
+            "lessons_count": len(report.lessons),
+            "new_memory_ids": report.new_memory_ids,
+            "open_questions": report.open_questions,
+            "lessons": [
+                {"lesson_id": l.id, "type": l.lesson_type, "domain": l.domain,
+                 "confidence": round(l.confidence, 4), "content": l.content}
+                for l in report.lessons
+            ],
+        }))
+    else:
+        print(report.summary())
+        if report.lessons:
+            print()
+            for l in report.lessons:
+                print(l.summary())
+
+
+def cmd_weave_narrative(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.weave_narrative(domain=args.domain, max_threads=args.max_threads)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_threads": report.total_threads,
+            "total_segments": report.total_segments,
+            "threads": [
+                {"thread_id": t.id, "theme": t.theme, "domain": t.domain,
+                 "segments": len(t.segments), "span_seconds": round(t.span_seconds, 1),
+                 "story": t.story()}
+                for t in report.threads
+            ],
+        }))
+    else:
+        print(report.summary())
+        for t in report.threads:
+            print()
+            print(t.summary())
+            print(f"  Story: {t.story()[:200]}")
+
+
+def cmd_narrative_threads(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    threads = agent.narrative_threads(domain=args.domain)
+    if not threads:
+        print("No narrative threads found.")
+        return
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"thread_id": t.id, "theme": t.theme, "domain": t.domain,
+             "segments": len(t.segments), "story": t.story()}
+            for t in threads
+        ]))
+    else:
+        print(f"Narrative threads ({len(threads)}):\n")
+        for t in threads:
+            print(t.summary())
+            print(f"  Story excerpt: {t.story()[:150]}")
+            print()
+
+
+def cmd_source_audit(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.source_audit(flag_threshold=args.flag_threshold)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_audited": report.total_audited,
+            "flagged_count": report.flagged_count,
+            "source_distribution": report.source_distribution,
+            "high_risk": [
+                {"memory_id": e.memory_id, "source_type": e.source_type,
+                 "confidence": round(e.source_confidence, 4), "flag_reason": e.flag_reason}
+                for e in report.high_risk_entries[:args.max_flagged]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_tag_source(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    tag = agent.tag_memory_source(
+        memory_id=args.memory_id,
+        source_type=args.source_type,
+        confidence=args.confidence,
+        note=args.note or "",
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "memory_id": tag.memory_id,
+            "source_type": tag.source_type,
+            "confidence": round(tag.confidence, 4),
+        }))
+    else:
+        print(tag.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -1809,6 +1919,55 @@ def build_parser() -> argparse.ArgumentParser:
     p_fg.add_argument("--rate", type=float, default=0.4,
                       help="Suppression rate (default 0.4).")
     p_fg.set_defaults(func=cmd_forget)
+
+    # v0.15.0 commands
+
+    # reflect
+    p_rf = sub.add_parser("reflect",
+                           help="Run a structured self-reflection pass: synthesise lessons from memory and episodes.")
+    p_rf.add_argument("--domain", default=None,
+                      help="Restrict reflection to one domain (default: all).")
+    p_rf.add_argument("--lookback-episodes", type=int, default=5, dest="lookback_episodes",
+                      help="Number of recent episodes to incorporate (default 5).")
+    p_rf.set_defaults(func=cmd_reflect)
+
+    # weave-narrative
+    p_wn = sub.add_parser("weave-narrative",
+                           help="Weave autobiographical narrative threads from stored memories.")
+    p_wn.add_argument("--domain", default=None,
+                      help="Restrict to one domain (default: all).")
+    p_wn.add_argument("--max-threads", type=int, default=8, dest="max_threads",
+                      help="Maximum narrative threads to return (default 8).")
+    p_wn.set_defaults(func=cmd_weave_narrative)
+
+    # narrative-threads
+    p_nt = sub.add_parser("narrative-threads",
+                           help="List narrative threads for one or all domains.")
+    p_nt.add_argument("--domain", default=None,
+                      help="Restrict to one domain (default: all).")
+    p_nt.set_defaults(func=cmd_narrative_threads)
+
+    # source-audit
+    p_sa = sub.add_parser("source-audit",
+                           help="Audit memories for source uncertainty and confabulation risk.")
+    p_sa.add_argument("--flag-threshold", type=float, default=0.5, dest="flag_threshold",
+                      help="Confidence below which a memory is flagged (default 0.5).")
+    p_sa.add_argument("--max-flagged", type=int, default=20, dest="max_flagged",
+                      help="Maximum flagged entries to show (default 20).")
+    p_sa.set_defaults(func=cmd_source_audit)
+
+    # tag-source
+    p_ts = sub.add_parser("tag-source",
+                           help="Assign a provenance tag to a memory.")
+    p_ts.add_argument("memory_id", help="Memory ID to tag.")
+    p_ts.add_argument("source_type",
+                      choices=["observation", "inference", "instruction",
+                               "reflection", "dream", "insight", "unknown"],
+                      help="Memory provenance type.")
+    p_ts.add_argument("--confidence", type=float, default=0.8,
+                      help="Confidence in this attribution (default 0.8).")
+    p_ts.add_argument("--note", default="", help="Optional free-text provenance note.")
+    p_ts.set_defaults(func=cmd_tag_source)
 
     return parser
 

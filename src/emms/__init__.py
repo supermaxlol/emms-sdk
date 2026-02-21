@@ -1,5 +1,31 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.15.0: The Reflective Mind
+- ReflectionEngine: structured self-review closing the learning loop; reviews
+  high-importance memories and recent episodes; groups by keyword clusters;
+  synthesises Lesson objects (types: pattern/gap/contrast/principle) using
+  template-based prose; stores each lesson as a "reflection" domain memory;
+  generates open questions from prominent keywords; ReflectionReport with
+  lessons, questions, new_memory_ids; EMMS façades: reflect, enable_reflection
+- NarrativeWeaver: autobiographical narrative construction; groups memories by
+  domain, sorts chronologically, divides into segments of ≤ max_segment_memories;
+  generates position-aware prose (opening/middle/closing templates); assembles
+  NarrativeThread per domain with emotional arc and span_seconds; annotates
+  segments with episode_ids when EpisodicBuffer active; NarrativeReport with
+  threads sorted by length; EMMS façades: weave_narrative, narrative_threads
+- SourceMonitor: memory provenance tracking and confabulation detection; 7 source
+  types (observation/inference/instruction/reflection/dream/insight/unknown);
+  tag() assigns explicit provenance; auto_tag() applies heuristics to all untagged
+  memories (domain, content-keyword, importance cues); audit() scans all memories
+  and flags those below flag_threshold confidence or type=="unknown"; source_profile()
+  returns distribution dict; SourceReport with flagged count and high_risk_entries;
+  EMMS façades: enable_source_monitoring, tag_memory_source, source_audit,
+  source_profile
+- MCP tools (5 new): emms_reflect, emms_weave_narrative, emms_narrative_threads,
+  emms_source_audit, emms_tag_source (62 total)
+- CLI commands (5 new): reflect, weave-narrative, narrative-threads,
+  source-audit, tag-source (66 total)
+
 v0.14.0: The Temporal Mind
 - EpisodicBuffer: structured session-as-episode storage; Episode objects with
   temporal boundaries (opened_at, closed_at), emotional arc per turn, key memory
@@ -252,10 +278,13 @@ from emms.retrieval.contextual import ContextualSalienceRetriever, SalienceResul
 from emms.memory.episodic import EpisodicBuffer, Episode
 from emms.memory.schema import SchemaExtractor, Schema, SchemaReport
 from emms.memory.forgetting import MotivatedForgetting, ForgettingResult, ForgettingReport
+from emms.memory.reflection import ReflectionEngine, Lesson, ReflectionReport
+from emms.memory.narrative import NarrativeWeaver, NarrativeSegment, NarrativeThread, NarrativeReport
+from emms.memory.source_monitor import SourceMonitor, SourceTag, SourceAuditEntry, SourceReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 __all__ = [
     # Core
     "EMMS",
@@ -373,6 +402,18 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.15.0 additions
+    "ReflectionEngine",
+    "Lesson",
+    "ReflectionReport",
+    "NarrativeWeaver",
+    "NarrativeSegment",
+    "NarrativeThread",
+    "NarrativeReport",
+    "SourceMonitor",
+    "SourceTag",
+    "SourceAuditEntry",
+    "SourceReport",
     # v0.14.0 additions
     "EpisodicBuffer",
     "Episode",

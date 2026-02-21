@@ -2630,3 +2630,167 @@ class EMMS:
         from emms.memory.forgetting import MotivatedForgetting
         mf = MotivatedForgetting(self.memory)
         return mf.resolve_contradiction(weaker_id)
+
+    # ------------------------------------------------------------------
+    # ReflectionEngine (v0.15.0)
+    # ------------------------------------------------------------------
+
+    def enable_reflection(
+        self,
+        min_importance: float = 0.5,
+        max_lessons: int = 8,
+    ) -> "Any":
+        """Enable and return the ReflectionEngine (lazy init).
+
+        Args:
+            min_importance: Only reflect on memories above this importance.
+            max_lessons:    Maximum lessons to synthesise per call.
+
+        Returns:
+            The :class:`ReflectionEngine` instance.
+        """
+        from emms.memory.reflection import ReflectionEngine
+        if not hasattr(self, "_reflection_engine"):
+            episodic = getattr(self, "_episodic_buffer", None)
+            self._reflection_engine = ReflectionEngine(
+                memory=self.memory,
+                episodic_buffer=episodic,
+                min_importance=min_importance,
+                max_lessons=max_lessons,
+            )
+        return self._reflection_engine
+
+    def reflect(
+        self,
+        session_id: Optional[str] = None,
+        domain: Optional[str] = None,
+        lookback_episodes: int = 5,
+    ) -> "Any":
+        """Run a structured self-reflection pass.
+
+        Reviews high-importance memories (and recent episodes if the episodic
+        buffer is active), synthesises lessons, stores them as reflection
+        memories, and returns open questions.
+
+        Args:
+            session_id:        Label for this reflection (auto-generated).
+            domain:            Restrict to one domain (``None`` = all).
+            lookback_episodes: How many recent episodes to incorporate.
+
+        Returns:
+            :class:`ReflectionReport` with lessons and open questions.
+        """
+        from emms.memory.reflection import ReflectionEngine
+        episodic = getattr(self, "_episodic_buffer", None)
+        engine = getattr(self, "_reflection_engine", None)
+        if engine is None:
+            engine = ReflectionEngine(memory=self.memory, episodic_buffer=episodic)
+        return engine.reflect(
+            session_id=session_id,
+            domain=domain,
+            lookback_episodes=lookback_episodes,
+        )
+
+    # ------------------------------------------------------------------
+    # NarrativeWeaver (v0.15.0)
+    # ------------------------------------------------------------------
+
+    def weave_narrative(
+        self,
+        domain: Optional[str] = None,
+        max_threads: int = 8,
+    ) -> "Any":
+        """Weave autobiographical narrative threads from stored memories.
+
+        Groups memories by domain, sorts chronologically, and generates
+        readable prose segments assembled into :class:`NarrativeThread` objects.
+
+        Args:
+            domain:      Restrict to one domain (``None`` = all domains).
+            max_threads: Maximum threads to return (default 8).
+
+        Returns:
+            :class:`NarrativeReport` with assembled threads.
+        """
+        from emms.memory.narrative import NarrativeWeaver
+        episodic = getattr(self, "_episodic_buffer", None)
+        weaver = NarrativeWeaver(memory=self.memory, episodic_buffer=episodic)
+        return weaver.weave(domain=domain, max_threads=max_threads)
+
+    def narrative_threads(self, domain: Optional[str] = None) -> "Any":
+        """Return narrative threads for one or all domains.
+
+        Args:
+            domain: Restrict to one domain (``None`` = all).
+
+        Returns:
+            List of :class:`NarrativeThread`, longest first.
+        """
+        return self.weave_narrative(domain=domain).threads
+
+    # ------------------------------------------------------------------
+    # SourceMonitor (v0.15.0)
+    # ------------------------------------------------------------------
+
+    def enable_source_monitoring(self) -> "Any":
+        """Enable and return the SourceMonitor (lazy init).
+
+        Returns:
+            The :class:`SourceMonitor` instance.
+        """
+        from emms.memory.source_monitor import SourceMonitor
+        if not hasattr(self, "_source_monitor"):
+            self._source_monitor = SourceMonitor(memory=self.memory)
+        return self._source_monitor
+
+    def tag_memory_source(
+        self,
+        memory_id: str,
+        source_type: str,
+        confidence: float = 0.8,
+        note: str = "",
+    ) -> "Any":
+        """Assign a provenance tag to a memory.
+
+        Auto-enables the SourceMonitor if not yet active.
+
+        Args:
+            memory_id:   Memory ID to tag.
+            source_type: One of: observation, inference, instruction,
+                         reflection, dream, insight, unknown.
+            confidence:  Confidence in the attribution (default 0.8).
+            note:        Optional free-text provenance note.
+
+        Returns:
+            The created :class:`SourceTag`.
+        """
+        monitor = self.enable_source_monitoring()
+        return monitor.tag(memory_id, source_type, confidence=confidence, note=note)
+
+    def source_audit(self, flag_threshold: float = 0.5) -> "Any":
+        """Audit memories for source uncertainty / confabulation risk.
+
+        Args:
+            flag_threshold: Confidence below which a memory is flagged.
+
+        Returns:
+            :class:`SourceReport` with distribution and high-risk entries.
+        """
+        from emms.memory.source_monitor import SourceMonitor
+        if not hasattr(self, "_source_monitor"):
+            self._source_monitor = SourceMonitor(
+                memory=self.memory, flag_threshold=flag_threshold
+            )
+        self._source_monitor.flag_threshold = flag_threshold
+        self._source_monitor.auto_tag()
+        return self._source_monitor.audit()
+
+    def source_profile(self) -> "Any":
+        """Return the distribution of tagged source types.
+
+        Returns:
+            Dict mapping source_type → count, sorted by count descending.
+        """
+        if not hasattr(self, "_source_monitor"):
+            return {}
+        return self._source_monitor.source_profile()
