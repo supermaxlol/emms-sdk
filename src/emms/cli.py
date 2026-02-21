@@ -944,6 +944,123 @@ def cmd_emotional_landscape(args: argparse.Namespace) -> None:
 # v0.12.0 commands
 # ---------------------------------------------------------------------------
 
+def cmd_metacognition(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.metacognition_report(
+        max_contradictions=args.max_contradictions,
+        confidence_threshold_high=args.threshold_high,
+        confidence_threshold_low=args.threshold_low,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_memories": report.total_memories,
+            "mean_confidence": round(report.mean_confidence, 4),
+            "high_confidence_count": report.high_confidence_count,
+            "low_confidence_count": report.low_confidence_count,
+            "knowledge_gaps": report.knowledge_gaps,
+            "recommendations": report.recommendations,
+            "contradictions": len(report.contradictions),
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_knowledge_map(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    profiles = agent.knowledge_map()
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"domain": p.domain, "memory_count": p.memory_count,
+             "mean_confidence": round(p.mean_confidence, 3),
+             "coverage_score": round(p.coverage_score, 3),
+             "mean_importance": round(p.mean_importance, 3)}
+            for p in profiles
+        ]))
+    else:
+        if not profiles:
+            print("No memories stored.")
+            return
+        print(f"Knowledge Map ({len(profiles)} domains):\n")
+        for p in profiles:
+            bar = "█" * int(p.mean_confidence * 10) + "░" * (10 - int(p.mean_confidence * 10))
+            print(f"  [{p.domain:12s}] n={p.memory_count:3d}  conf={p.mean_confidence:.2f} {bar}  imp={p.mean_importance:.2f}")
+
+
+def cmd_contradictions(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    pairs = agent.find_contradictions(max_pairs=args.max_pairs)
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"memory_a_id": p.memory_a_id, "memory_b_id": p.memory_b_id,
+             "semantic_overlap": round(p.semantic_overlap, 4),
+             "valence_conflict": round(p.valence_conflict, 4),
+             "contradiction_score": round(p.contradiction_score, 4),
+             "excerpt_a": p.excerpt_a[:80], "excerpt_b": p.excerpt_b[:80]}
+            for p in pairs
+        ]))
+    else:
+        if not pairs:
+            print("No contradictions detected.")
+            return
+        print(f"Contradictions ({len(pairs)}):\n")
+        for i, p in enumerate(pairs, 1):
+            print(f"  {i}. score={p.contradiction_score:.3f}  "
+                  f"overlap={p.semantic_overlap:.2f}  "
+                  f"valence_conflict={p.valence_conflict:.2f}")
+            print(f"     A: {p.excerpt_a[:70]}")
+            print(f"     B: {p.excerpt_b[:70]}")
+
+
+def cmd_intend(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    intention = agent.intend(
+        content=args.content,
+        trigger_context=args.trigger,
+        priority=args.priority,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "intention_id": intention.id,
+            "content": intention.content,
+            "trigger_context": intention.trigger_context,
+            "priority": intention.priority,
+        }))
+    else:
+        print(f"Intention stored: {intention.id}")
+        print(f"  Content:  {intention.content}")
+        print(f"  Trigger:  {intention.trigger_context}")
+        print(f"  Priority: {intention.priority:.2f}")
+
+
+def cmd_check_intentions(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    context = args.context or ""
+    activations = agent.check_intentions(context)
+    pending = agent.pending_intentions()
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "activated": [
+                {"intention_id": a.intention.id, "content": a.intention.content,
+                 "activation_score": round(a.activation_score, 4),
+                 "days_pending": round(a.days_pending, 2)}
+                for a in activations
+            ],
+            "total_pending": len(pending),
+        }))
+    else:
+        print(f"Pending intentions: {len(pending)}")
+        if activations:
+            print(f"\nActivated by context ({len(activations)}):")
+            for a in activations:
+                print(f"  score={a.activation_score:.3f}  [{a.intention.id}] {a.intention.content[:70]}")
+        else:
+            print("\nNo intentions activated by current context.")
+        if pending and not activations:
+            print("\nAll pending:")
+            for i in pending[:5]:
+                print(f"  [{i.id}] pri={i.priority:.2f}  {i.content[:70]}")
+
+
 def cmd_association_graph(args: argparse.Namespace) -> None:
     agent = _get_emms(args.memory)
     stats = agent.build_association_graph(
@@ -1422,6 +1539,46 @@ def build_parser() -> argparse.ArgumentParser:
     p_bs2 = sub.add_parser("bridge-summary",
                             help="Show current session's unresolved threads (bridge preview).")
     p_bs2.set_defaults(func=cmd_bridge_summary)
+
+    # v0.13.0 commands
+
+    # metacognition
+    p_mc = sub.add_parser("metacognition",
+                           help="Generate a metacognitive self-assessment: confidence, gaps, contradictions.")
+    p_mc.add_argument("--max-contradictions", type=int, default=5, dest="max_contradictions")
+    p_mc.add_argument("--threshold-high", type=float, default=0.65, dest="threshold_high",
+                      help="Confidence above this = high confidence (default 0.65).")
+    p_mc.add_argument("--threshold-low", type=float, default=0.3, dest="threshold_low",
+                      help="Confidence below this = low confidence (default 0.3).")
+    p_mc.set_defaults(func=cmd_metacognition)
+
+    # knowledge-map
+    p_km = sub.add_parser("knowledge-map",
+                           help="Show per-domain knowledge profiles (confidence, coverage, importance).")
+    p_km.set_defaults(func=cmd_knowledge_map)
+
+    # contradictions
+    p_ct = sub.add_parser("contradictions",
+                           help="Find memory pairs with semantic overlap but conflicting emotional valence.")
+    p_ct.add_argument("--max-pairs", type=int, default=10, dest="max_pairs")
+    p_ct.set_defaults(func=cmd_contradictions)
+
+    # intend
+    p_in = sub.add_parser("intend",
+                           help="Store a future-oriented intention with a trigger context.")
+    p_in.add_argument("content", help="What the agent plans to do.")
+    p_in.add_argument("--trigger", "-t", required=True,
+                      help="Context description that should trigger this intention.")
+    p_in.add_argument("--priority", "-p", type=float, default=0.5,
+                      help="Urgency 0–1 (default 0.5).")
+    p_in.set_defaults(func=cmd_intend)
+
+    # check-intentions
+    p_ci = sub.add_parser("check-intentions",
+                           help="Check which stored intentions are activated by the current context.")
+    p_ci.add_argument("--context", "-c", default=None,
+                      help="Current conversational context text.")
+    p_ci.set_defaults(func=cmd_check_intentions)
 
     # v0.12.0 commands
 

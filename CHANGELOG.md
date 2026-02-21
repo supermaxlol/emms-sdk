@@ -4,6 +4,18 @@ All notable changes to the Enhanced Memory Management System are documented here
 
 ---
 
+## [0.13.0] — 2026-02-22
+
+### Added
+- **`MetacognitionEngine`** + **`MetacognitionReport`** + **`MemoryConfidence`** + **`DomainProfile`** + **`ContradictionPair`** (`memory/metacognition.py`) — epistemic self-knowledge layer; `assess(item)` computes confidence via weighted geometric mean of strength / recency / access / consolidation factors; `assess_all()` ranks all memories; `knowledge_map()` builds per-domain profiles (count, mean confidence, coverage, importance, strength); `find_contradictions()` detects pairs with semantic token overlap ≥ threshold but opposing emotional valence; `find_gaps()` flags sparse/low-confidence domains; `report()` synthesises everything into a `MetacognitionReport` with actionable recommendations; EMMS façades: `assess_memory`, `metacognition_report`, `knowledge_map`, `find_contradictions`
+- **`ProspectiveMemory`** + **`Intention`** + **`IntentionActivation`** (`memory/prospection.py`) — future-oriented intention storage; `intend(content, trigger_context, priority)` stores intentions with trigger descriptions; `check(current_context)` activates matching intentions via Jaccard token overlap weighted by priority; `fulfill(id)` / `dismiss(id)` lifecycle; `pending()` returns unfulfilled sorted by priority; `save(path)` / `load(path)` JSON persistence; biological analogue: rostral prefrontal prospective memory; EMMS façades: `enable_prospective_memory`, `intend`, `check_intentions`, `fulfill_intention`, `pending_intentions`
+- **`ContextualSalienceRetriever`** + **`SalienceResult`** (`retrieval/contextual.py`) — dynamic memory spotlight on the current conversational context; rolling context window (deque, configurable `window_size`); `update_context(text, valence)` accumulates recent turns; `retrieve()` scores all memories on four axes — semantic token overlap with context, memory importance, storage recency (exponential decay), affective resonance (valence match); results sorted by combined salience score; `context_summary` and `context_valence` properties; biological analogue: context-dependent memory (Godden & Baddeley 1975); EMMS façades: `enable_contextual_retrieval`, `update_context`, `contextual_retrieve`, `context_summary`
+- **CLI commands** (5 new, 56 total): `metacognition`, `knowledge-map`, `contradictions`, `intend`, `check-intentions`
+- **MCP tools** (5 new, 52 total): `emms_metacognition_report`, `emms_knowledge_map`, `emms_find_contradictions`, `emms_intend`, `emms_check_intentions`
+- 90 new tests in `tests/test_v130_features.py`; total: **1247 passed, 2 skipped**
+
+---
+
 ## [0.12.0] — 2026-02-22
 
 ### Added

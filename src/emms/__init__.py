@@ -1,5 +1,26 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.13.0: The Metacognitive Layer
+- MetacognitionEngine: assesses epistemic confidence per memory via weighted
+  geometric mean of strength/recency/access/consolidation factors; knowledge_map()
+  per-domain profile; find_contradictions() detects semantic overlap + valence
+  conflict pairs; find_gaps() identifies sparse domains; MetacognitionReport with
+  recommendations; EMMS façades: assess_memory, metacognition_report, knowledge_map,
+  find_contradictions
+- ProspectiveMemory: future-oriented intention storage with context triggering;
+  intend(content, trigger_context, priority) stores intentions; check(context)
+  returns activated intentions via token overlap; fulfill/dismiss/pending lifecycle;
+  save/load JSON persistence; EMMS façades: enable_prospective_memory, intend,
+  check_intentions, fulfill_intention, pending_intentions
+- ContextualSalienceRetriever: dynamic memory spotlight on current conversational
+  context; rolling context window (deque); scores on semantic overlap + importance
+  + recency + affective resonance; update_context() + retrieve(); EMMS façades:
+  enable_contextual_retrieval, update_context, contextual_retrieve, context_summary
+- MCP tools (5 new): emms_metacognition_report, emms_knowledge_map,
+  emms_find_contradictions, emms_intend, emms_check_intentions (52 total)
+- CLI commands (5 new): metacognition, knowledge-map, contradictions,
+  intend, check-intentions (56 total)
+
 v0.12.0: The Associative Mind
 - AssociationGraph: explicit memory-to-memory graph with four auto-detected edge types
   (semantic, temporal, affective, domain) plus manual "explicit" edges; spreading
@@ -203,10 +224,13 @@ from emms.memory.annealing import MemoryAnnealer, AnnealingResult
 from emms.memory.association import AssociationGraph, AssociationEdge, ActivationResult, AssociationStats
 from emms.memory.insight import InsightEngine, InsightReport, InsightBridge
 from emms.retrieval.associative import AssociativeRetriever, AssociativeResult
+from emms.memory.metacognition import MetacognitionEngine, MetacognitionReport, MemoryConfidence, DomainProfile, ContradictionPair
+from emms.memory.prospection import ProspectiveMemory, Intention, IntentionActivation
+from emms.retrieval.contextual import ContextualSalienceRetriever, SalienceResult
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 __all__ = [
     # Core
     "EMMS",
@@ -324,6 +348,17 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.13.0 additions
+    "MetacognitionEngine",
+    "MetacognitionReport",
+    "MemoryConfidence",
+    "DomainProfile",
+    "ContradictionPair",
+    "ProspectiveMemory",
+    "Intention",
+    "IntentionActivation",
+    "ContextualSalienceRetriever",
+    "SalienceResult",
     # v0.12.0 additions
     "AssociationGraph",
     "AssociationEdge",

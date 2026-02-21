@@ -673,6 +673,58 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "description": "Return statistics for the current association graph: node/edge counts, mean degree, mean edge weight, most-connected memory, edge type breakdown.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    # v0.13.0 tools
+    {
+        "name": "emms_metacognition_report",
+        "description": "Generate a metacognitive self-assessment: epistemic confidence per memory, per-domain knowledge profiles, contradiction pairs, knowledge gaps, and recommendations.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_contradictions": {"type": "integer", "default": 5},
+                "confidence_threshold_high": {"type": "number", "default": 0.65},
+                "confidence_threshold_low": {"type": "number", "default": 0.3},
+            },
+        },
+    },
+    {
+        "name": "emms_knowledge_map",
+        "description": "Return per-domain knowledge profiles showing memory count, mean confidence, coverage score, and mean importance for each domain.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "emms_find_contradictions",
+        "description": "Find memory pairs with semantic overlap but conflicting emotional valence — potential contradictions in the agent's knowledge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_pairs": {"type": "integer", "default": 10},
+            },
+        },
+    },
+    {
+        "name": "emms_intend",
+        "description": "Store a future-oriented intention with a trigger context. The intention will activate when check_intentions() is called with a matching context.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "What the agent plans to do."},
+                "trigger_context": {"type": "string", "description": "Context description that should trigger this intention."},
+                "priority": {"type": "number", "default": 0.5, "description": "Urgency 0–1."},
+            },
+            "required": ["content", "trigger_context"],
+        },
+    },
+    {
+        "name": "emms_check_intentions",
+        "description": "Check which stored intentions are activated by the current context. Returns activated intentions sorted by activation score.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "current_context": {"type": "string", "description": "Current conversational context text."},
+            },
+            "required": ["current_context"],
+        },
+    },
 ]
 
 
@@ -1550,6 +1602,103 @@ class EMCPServer:
             "summary": stats.summary(),
         }
 
+    def _handle_metacognition_report(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.metacognition_report(
+            max_contradictions=int(args.get("max_contradictions", 5)),
+            confidence_threshold_high=float(args.get("confidence_threshold_high", 0.65)),
+            confidence_threshold_low=float(args.get("confidence_threshold_low", 0.3)),
+        )
+        return {
+            "total_memories": report.total_memories,
+            "mean_confidence": round(report.mean_confidence, 4),
+            "high_confidence_count": report.high_confidence_count,
+            "low_confidence_count": report.low_confidence_count,
+            "knowledge_gaps": report.knowledge_gaps,
+            "recommendations": report.recommendations,
+            "contradictions": len(report.contradictions),
+            "domain_profiles": [
+                {
+                    "domain": p.domain,
+                    "memory_count": p.memory_count,
+                    "mean_confidence": round(p.mean_confidence, 3),
+                    "coverage_score": round(p.coverage_score, 3),
+                }
+                for p in report.domain_profiles[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_knowledge_map(self, args: dict[str, Any]) -> dict[str, Any]:
+        profiles = self.emms.knowledge_map()
+        return {
+            "domains": [
+                {
+                    "domain": p.domain,
+                    "memory_count": p.memory_count,
+                    "mean_confidence": round(p.mean_confidence, 3),
+                    "coverage_score": round(p.coverage_score, 3),
+                    "mean_importance": round(p.mean_importance, 3),
+                    "mean_strength": round(p.mean_strength, 3),
+                }
+                for p in profiles
+            ],
+            "total_domains": len(profiles),
+        }
+
+    def _handle_find_contradictions(self, args: dict[str, Any]) -> dict[str, Any]:
+        pairs = self.emms.find_contradictions(
+            max_pairs=int(args.get("max_pairs", 10)),
+        )
+        return {
+            "contradictions": [
+                {
+                    "memory_a_id": p.memory_a_id,
+                    "memory_b_id": p.memory_b_id,
+                    "semantic_overlap": round(p.semantic_overlap, 4),
+                    "valence_conflict": round(p.valence_conflict, 4),
+                    "contradiction_score": round(p.contradiction_score, 4),
+                    "excerpt_a": p.excerpt_a[:80],
+                    "excerpt_b": p.excerpt_b[:80],
+                }
+                for p in pairs
+            ],
+            "total": len(pairs),
+        }
+
+    def _handle_intend(self, args: dict[str, Any]) -> dict[str, Any]:
+        intention = self.emms.intend(
+            content=args["content"],
+            trigger_context=args["trigger_context"],
+            priority=float(args.get("priority", 0.5)),
+        )
+        return {
+            "intention_id": intention.id,
+            "content": intention.content,
+            "trigger_context": intention.trigger_context,
+            "priority": intention.priority,
+            "created_at": intention.created_at,
+        }
+
+    def _handle_check_intentions(self, args: dict[str, Any]) -> dict[str, Any]:
+        activations = self.emms.check_intentions(
+            current_context=args.get("current_context", ""),
+        )
+        return {
+            "activated": [
+                {
+                    "intention_id": a.intention.id,
+                    "content": a.intention.content,
+                    "activation_score": round(a.activation_score, 4),
+                    "trigger_overlap": round(a.trigger_overlap, 4),
+                    "days_pending": round(a.days_pending, 2),
+                    "priority": a.intention.priority,
+                }
+                for a in activations
+            ],
+            "total_activated": len(activations),
+            "total_pending": len(self.emms.pending_intentions()),
+        }
+
     def _handle_bridge_summary(self, args: dict[str, Any]) -> dict[str, Any]:
         # Capture current state without closing
         record = self.emms.capture_session_bridge(
@@ -1621,6 +1770,12 @@ class EMCPServer:
         "emms_inject_bridge": _handle_inject_bridge,
         "emms_anneal": _handle_anneal,
         "emms_bridge_summary": _handle_bridge_summary,
+        # v0.13.0 tools
+        "emms_metacognition_report": _handle_metacognition_report,
+        "emms_knowledge_map": _handle_knowledge_map,
+        "emms_find_contradictions": _handle_find_contradictions,
+        "emms_intend": _handle_intend,
+        "emms_check_intentions": _handle_check_intentions,
         # v0.12.0 tools
         "emms_build_association_graph": _handle_build_association_graph,
         "emms_spreading_activation": _handle_spreading_activation,

@@ -2217,3 +2217,237 @@ class EMMS:
             decay=decay,
             rebuild_graph=rebuild_graph,
         )
+
+    # ------------------------------------------------------------------
+    # MetacognitionEngine (v0.13.0)
+    # ------------------------------------------------------------------
+
+    def assess_memory(
+        self,
+        memory_id: str,
+    ) -> "Any":
+        """Compute epistemic confidence for a single memory.
+
+        Args:
+            memory_id: The memory ID to assess.
+
+        Returns:
+            :class:`MemoryConfidence` with factor breakdown.
+        """
+        from emms.memory.metacognition import MetacognitionEngine
+        item = self.get_memory_by_id(memory_id)
+        engine = MetacognitionEngine(memory=self.memory)
+        return engine.assess(item)
+
+    def metacognition_report(
+        self,
+        max_contradictions: int = 5,
+        recency_decay: float = 0.05,
+        confidence_threshold_high: float = 0.65,
+        confidence_threshold_low: float = 0.3,
+    ) -> "Any":
+        """Generate a comprehensive metacognitive self-assessment.
+
+        Covers epistemic confidence across all memories, per-domain knowledge
+        profiles, contradiction pairs, knowledge gaps, and recommendations.
+
+        Args:
+            max_contradictions:        Max contradiction pairs to include.
+            recency_decay:             Daily decay rate for recency factor.
+            confidence_threshold_high: Confidence above this = high confidence.
+            confidence_threshold_low:  Confidence below this = low confidence.
+
+        Returns:
+            :class:`MetacognitionReport`.
+        """
+        from emms.memory.metacognition import MetacognitionEngine
+        engine = MetacognitionEngine(
+            memory=self.memory,
+            recency_decay=recency_decay,
+            confidence_threshold_high=confidence_threshold_high,
+            confidence_threshold_low=confidence_threshold_low,
+        )
+        return engine.report(max_contradictions=max_contradictions)
+
+    def knowledge_map(self) -> "Any":
+        """Return a per-domain knowledge profile (confidence, coverage, importance).
+
+        Returns:
+            List of :class:`DomainProfile` sorted by memory count descending.
+        """
+        from emms.memory.metacognition import MetacognitionEngine
+        engine = MetacognitionEngine(memory=self.memory)
+        return engine.knowledge_map()
+
+    def find_contradictions(self, max_pairs: int = 10) -> "Any":
+        """Find memory pairs with semantic overlap but conflicting valence.
+
+        Args:
+            max_pairs: Maximum pairs to return (default 10).
+
+        Returns:
+            List of :class:`ContradictionPair` sorted by contradiction_score.
+        """
+        from emms.memory.metacognition import MetacognitionEngine
+        engine = MetacognitionEngine(memory=self.memory)
+        return engine.find_contradictions(max_pairs=max_pairs)
+
+    # ------------------------------------------------------------------
+    # ProspectiveMemory (v0.13.0)
+    # ------------------------------------------------------------------
+
+    def enable_prospective_memory(
+        self,
+        overlap_threshold: float = 0.15,
+        max_intentions: int = 50,
+    ) -> "Any":
+        """Enable the prospective memory module (lazy init).
+
+        Args:
+            overlap_threshold: Minimum token overlap to trigger an intention.
+            max_intentions:    Maximum stored intentions (default 50).
+
+        Returns:
+            The :class:`ProspectiveMemory` instance.
+        """
+        from emms.memory.prospection import ProspectiveMemory
+        if not hasattr(self, "_prospective"):
+            self._prospective = ProspectiveMemory(
+                overlap_threshold=overlap_threshold,
+                max_intentions=max_intentions,
+            )
+        return self._prospective
+
+    def intend(
+        self,
+        content: str,
+        trigger_context: str,
+        priority: float = 0.5,
+    ) -> "Any":
+        """Store a future-oriented intention.
+
+        Creates the prospective memory module if not yet enabled.
+
+        Args:
+            content:         What the agent intends to do.
+            trigger_context: Context description that should trigger this.
+            priority:        Urgency 0–1 (default 0.5).
+
+        Returns:
+            :class:`Intention`.
+        """
+        if not hasattr(self, "_prospective"):
+            self.enable_prospective_memory()
+        return self._prospective.intend(
+            content=content,
+            trigger_context=trigger_context,
+            priority=priority,
+        )
+
+    def check_intentions(self, current_context: str) -> "Any":
+        """Check which intentions are activated by the current context.
+
+        Args:
+            current_context: Text representing current conversational context.
+
+        Returns:
+            List of :class:`IntentionActivation` sorted by activation_score.
+        """
+        if not hasattr(self, "_prospective"):
+            return []
+        return self._prospective.check(current_context)
+
+    def fulfill_intention(self, intention_id: str) -> bool:
+        """Mark an intention as fulfilled.
+
+        Args:
+            intention_id: ID of the intention to fulfill.
+
+        Returns:
+            ``True`` if found and fulfilled.
+        """
+        if not hasattr(self, "_prospective"):
+            return False
+        return self._prospective.fulfill(intention_id)
+
+    def pending_intentions(self) -> "Any":
+        """Return all unfulfilled intentions sorted by priority.
+
+        Returns:
+            List of unfulfilled :class:`Intention` objects.
+        """
+        if not hasattr(self, "_prospective"):
+            return []
+        return self._prospective.pending()
+
+    # ------------------------------------------------------------------
+    # ContextualSalienceRetriever (v0.13.0)
+    # ------------------------------------------------------------------
+
+    def enable_contextual_retrieval(
+        self,
+        window_size: int = 6,
+        semantic_weight: float = 0.35,
+        importance_weight: float = 0.30,
+        recency_weight: float = 0.25,
+        affective_weight: float = 0.10,
+    ) -> "Any":
+        """Enable the contextual salience retriever (lazy init).
+
+        Args:
+            window_size:        Number of recent text snippets in window.
+            semantic_weight:    Weight for semantic overlap factor.
+            importance_weight:  Weight for memory importance factor.
+            recency_weight:     Weight for storage recency factor.
+            affective_weight:   Weight for affective resonance factor.
+
+        Returns:
+            The :class:`ContextualSalienceRetriever` instance.
+        """
+        from emms.retrieval.contextual import ContextualSalienceRetriever
+        if not hasattr(self, "_contextual_retriever"):
+            self._contextual_retriever = ContextualSalienceRetriever(
+                memory=self.memory,
+                window_size=window_size,
+                semantic_weight=semantic_weight,
+                importance_weight=importance_weight,
+                recency_weight=recency_weight,
+                affective_weight=affective_weight,
+            )
+        return self._contextual_retriever
+
+    def update_context(self, text: str, valence: float = 0.0) -> None:
+        """Add text to the rolling context window for salience retrieval.
+
+        Creates the contextual retriever if not yet enabled.
+
+        Args:
+            text:    Text to add (e.g. user message + agent reply combined).
+            valence: Estimated emotional valence of the snippet.
+        """
+        if not hasattr(self, "_contextual_retriever"):
+            self.enable_contextual_retrieval()
+        self._contextual_retriever.update_context(text, valence=valence)
+
+    def contextual_retrieve(self, max_results: int = 10) -> "Any":
+        """Retrieve memories salient to the current rolling context window.
+
+        Args:
+            max_results: Maximum memories to return (default 10).
+
+        Returns:
+            List of :class:`SalienceResult` sorted by salience_score descending.
+        """
+        if not hasattr(self, "_contextual_retriever"):
+            return []
+        return self._contextual_retriever.retrieve(max_results=max_results)
+
+    def context_summary(self) -> str:
+        """Return a brief summary of the current context window.
+
+        Returns:
+            String summary, or "(empty context)" if not active.
+        """
+        if not hasattr(self, "_contextual_retriever"):
+            return "(contextual retrieval not enabled)"
+        return self._contextual_retriever.context_summary
