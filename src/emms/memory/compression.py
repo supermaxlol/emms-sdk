@@ -419,3 +419,156 @@ class PatternDetector:
             "trends": trends,
             "dominant": dominant,
         }
+
+
+# ---------------------------------------------------------------------------
+# SemanticDeduplicator — near-duplicate detection + intelligent merge
+# ---------------------------------------------------------------------------
+
+class SemanticDeduplicator:
+    """Detect and resolve near-duplicate memories using cosine + lexical similarity.
+
+    Near-duplicates are memories that say essentially the same thing, possibly
+    with slightly different wording.  When found, the weaker copy is archived
+    (``superseded_by`` set) and only the best representative is kept active.
+
+    Two-stage similarity:
+    1. **Cosine similarity** on embedding vectors (requires embedder).
+       Threshold default: 0.92.
+    2. **Lexical similarity** (Jaccard + trigram, same as MemoryCompressor).
+       Threshold default: 0.85.
+
+    Either signal exceeding its threshold marks a pair as near-duplicate.
+
+    Usage::
+
+        dedup = SemanticDeduplicator(cosine_threshold=0.92, lexical_threshold=0.85)
+        groups = dedup.find_duplicate_groups(memory_items)
+        archived = dedup.resolve_groups(groups)
+    """
+
+    def __init__(
+        self,
+        cosine_threshold: float = 0.92,
+        lexical_threshold: float = 0.85,
+    ) -> None:
+        self.cosine_threshold = cosine_threshold
+        self.lexical_threshold = lexical_threshold
+        self._compressor = MemoryCompressor()  # reuse lexical similarity
+
+    def find_duplicate_groups(
+        self, items: list[MemoryItem]
+    ) -> list[list[MemoryItem]]:
+        """Group near-duplicate items together.
+
+        Args:
+            items: Memory items to scan (typically long-term tier).
+
+        Returns:
+            List of groups where each group has ≥2 near-duplicate items.
+        """
+        if len(items) < 2:
+            return []
+
+        # Pre-compute embeddings for cosine similarity (use existing if available)
+        embeddings: dict[str, np.ndarray | None] = {}
+        for item in items:
+            emb = item.experience.embedding
+            if emb:
+                embeddings[item.id] = np.array(emb, dtype=np.float32)
+            else:
+                embeddings[item.id] = None
+
+        assigned: set[int] = set()
+        groups: list[list[MemoryItem]] = []
+
+        for i, a in enumerate(items):
+            if i in assigned:
+                continue
+            group = [a]
+            assigned.add(i)
+
+            for j in range(i + 1, len(items)):
+                if j in assigned:
+                    continue
+                b = items[j]
+
+                # Stage 1: cosine similarity (if both have embeddings)
+                is_dup = False
+                emb_a = embeddings[a.id]
+                emb_b = embeddings[b.id]
+                if emb_a is not None and emb_b is not None:
+                    cos_sim = self._cosine_sim(emb_a, emb_b)
+                    if cos_sim >= self.cosine_threshold:
+                        is_dup = True
+
+                # Stage 2: lexical similarity (always run as fallback)
+                if not is_dup:
+                    lex_sim = self._compressor._content_similarity(
+                        a.experience.content, b.experience.content
+                    )
+                    if lex_sim >= self.lexical_threshold:
+                        is_dup = True
+
+                if is_dup:
+                    group.append(b)
+                    assigned.add(j)
+
+            # Only return groups with ≥2 members
+            if len(group) >= 2:
+                groups.append(group)
+
+        return groups
+
+    def resolve_groups(
+        self, groups: list[list[MemoryItem]]
+    ) -> list[str]:
+        """Keep the best memory from each group; archive the rest.
+
+        Scoring formula for the winner:
+            score = importance * 0.6 + min(access_count / 10, 1) * 0.4
+
+        The winner's ``id`` is set as ``superseded_by`` on all losers.
+
+        Args:
+            groups: Output of ``find_duplicate_groups()``.
+
+        Returns:
+            List of archived memory IDs (losers).
+        """
+        archived: list[str] = []
+        for group in groups:
+            # Score each item
+            def _score(item: MemoryItem) -> float:
+                return (
+                    item.experience.importance * 0.6
+                    + min(item.access_count / 10.0, 1.0) * 0.4
+                )
+
+            group.sort(key=_score, reverse=True)
+            winner = group[0]
+            losers = group[1:]
+
+            for loser in losers:
+                if not loser.is_superseded:
+                    loser.superseded_by = winner.id
+                    archived.append(loser.id)
+                    logger.debug(
+                        "SemanticDeduplicator: archived %r → kept %r",
+                        loser.id, winner.id,
+                    )
+
+        return archived
+
+    # ------------------------------------------------------------------
+    # Private
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
+        """Cosine similarity between two vectors."""
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return float(np.dot(a, b) / (norm_a * norm_b))

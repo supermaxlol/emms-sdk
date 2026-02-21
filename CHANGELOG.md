@@ -4,6 +4,18 @@ All notable changes to the Enhanced Memory Management System are documented here
 
 ---
 
+## [0.12.0] — 2026-02-22
+
+### Added
+- **`AssociationGraph`** + **`AssociationEdge`** + **`ActivationResult`** + **`AssociationStats`** (`memory/association.py`) — explicit memory-to-memory association graph; four auto-detected edge types: `"semantic"` (cosine similarity of embeddings), `"temporal"` (stored within window), `"affective"` (valence proximity), `"domain"` (same domain string), plus `"explicit"` for manual edges; `spreading_activation(seed_ids, decay, steps)` — BFS activation that decays along edges; `neighbors(id, min_weight)` — sorted edge list; `strongest_path(id_a, id_b)` — Dijkstra maximising edge-weight product via −log(w) metric; `stats()` returns `AssociationStats`; `EMMS.build_association_graph()`, `EMMS.associate()`, `EMMS.spreading_activation()`, `EMMS.association_stats()` façades
+- **`InsightEngine`** + **`InsightReport`** + **`InsightBridge`** (`memory/insight.py`) — cross-domain insight generation; walks association graph edges for pairs from different domains with weight ≥ `min_bridge_weight`; synthesises new `"insight"` domain memories via template combining both excerpts; stores them in hierarchical memory; `InsightReport.summary()` lists top bridges; biological analogue: Default Mode Network / REM analogical binding; `EMMS.discover_insights()` façade
+- **`AssociativeRetriever`** + **`AssociativeResult`** (`retrieval/associative.py`) — retrieval via spreading activation; `retrieve(seed_ids)` — activation spread from explicit seed IDs; `retrieve_by_query(query)` — auto-selects seeds via token-overlap BM25-lite then spreads; results include `activation_score`, `steps_from_seed`, `path`; biological analogue: priming — recalling one memory raises accessibility of associated memories; `EMMS.associative_retrieve()`, `EMMS.associative_retrieve_by_query()` façades
+- **CLI commands** (5 new, 51 total): `association-graph`, `activation`, `discover-insights`, `associative-retrieve`, `association-stats`
+- **MCP tools** (5 new, 47 total): `emms_build_association_graph`, `emms_spreading_activation`, `emms_discover_insights`, `emms_associative_retrieve`, `emms_association_stats`
+- 83 new tests in `tests/test_v120_features.py`; total: **1157 passed, 2 skipped**
+
+---
+
 ## [0.11.0] — 2026-02-20
 
 ### Added

@@ -940,6 +940,127 @@ def cmd_emotional_landscape(args: argparse.Namespace) -> None:
         print(landscape.summary())
 
 
+# ---------------------------------------------------------------------------
+# v0.12.0 commands
+# ---------------------------------------------------------------------------
+
+def cmd_association_graph(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    stats = agent.build_association_graph(
+        semantic_threshold=args.semantic_threshold,
+        temporal_window=args.temporal_window,
+        affective_tolerance=args.affective_tolerance,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_nodes": stats.total_nodes,
+            "total_edges": stats.total_edges,
+            "mean_degree": round(stats.mean_degree, 3),
+            "mean_edge_weight": round(stats.mean_edge_weight, 4),
+            "most_connected_id": stats.most_connected_id,
+            "edge_type_counts": stats.edge_type_counts,
+        }))
+    else:
+        print(stats.summary())
+
+
+def cmd_activation(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    seed_ids = args.seed_ids
+    results = agent.spreading_activation(
+        seed_ids=seed_ids,
+        decay=args.decay,
+        steps=args.steps,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"memory_id": r.memory_id, "activation": round(r.activation, 4),
+             "steps": r.steps_from_seed, "path": r.path}
+            for r in results
+        ]))
+    else:
+        print(f"Spreading activation from {len(seed_ids)} seed(s): {seed_ids}")
+        print(f"Activated {len(results)} memories:\n")
+        for r in results[:15]:
+            print(f"  act={r.activation:.3f}  steps={r.steps_from_seed}  id={r.memory_id}")
+
+
+def cmd_discover_insights(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.discover_insights(
+        session_id=args.session_id,
+        max_insights=args.max_insights,
+        min_bridge_weight=args.min_bridge_weight,
+        rebuild_graph=not args.no_rebuild,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "bridges_found": report.bridges_found,
+            "insights_generated": report.insights_generated,
+            "new_memory_ids": report.new_memory_ids,
+            "duration_ms": round(report.duration_seconds * 1000, 1),
+            "bridges": [
+                {"domain_a": b.domain_a, "domain_b": b.domain_b,
+                 "bridge_weight": round(b.bridge_weight, 4),
+                 "insight": b.insight_content[:120]}
+                for b in report.bridges
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_associative_retrieve(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    if args.seed_ids:
+        results = agent.associative_retrieve(
+            seed_ids=args.seed_ids,
+            max_results=args.max,
+            steps=args.steps,
+            decay=args.decay,
+        )
+    else:
+        results = agent.associative_retrieve_by_query(
+            query=args.query or "",
+            seed_count=args.seed_count,
+            max_results=args.max,
+            steps=args.steps,
+            decay=args.decay,
+        )
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"memory_id": r.memory.id, "activation_score": round(r.activation_score, 4),
+             "steps": r.steps_from_seed, "domain": r.memory.experience.domain,
+             "content": r.memory.experience.content[:100]}
+            for r in results
+        ]))
+    else:
+        print(f"Associative retrieval — {len(results)} result(s):\n")
+        for i, r in enumerate(results, 1):
+            dom = r.memory.experience.domain or "general"
+            content = r.memory.experience.content
+            if len(content) > 90:
+                content = content[:90] + "..."
+            print(f"  {i:2d}. act={r.activation_score:.3f}  steps={r.steps_from_seed}"
+                  f"  [{dom}] {content}")
+
+
+def cmd_association_stats(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    stats = agent.association_stats()
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_nodes": stats.total_nodes,
+            "total_edges": stats.total_edges,
+            "mean_degree": round(stats.mean_degree, 3),
+            "mean_edge_weight": round(stats.mean_edge_weight, 4),
+            "most_connected_id": stats.most_connected_id,
+            "edge_type_counts": stats.edge_type_counts,
+        }))
+    else:
+        print(stats.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -1301,6 +1422,60 @@ def build_parser() -> argparse.ArgumentParser:
     p_bs2 = sub.add_parser("bridge-summary",
                             help="Show current session's unresolved threads (bridge preview).")
     p_bs2.set_defaults(func=cmd_bridge_summary)
+
+    # v0.12.0 commands
+
+    # association-graph
+    p_ag = sub.add_parser("association-graph",
+                           help="Build the association graph over all memories and show statistics.")
+    p_ag.add_argument("--semantic-threshold", type=float, default=0.5, dest="semantic_threshold",
+                      help="Minimum cosine similarity for a semantic edge (default 0.5).")
+    p_ag.add_argument("--temporal-window", type=float, default=300.0, dest="temporal_window",
+                      help="Max seconds between stored_at timestamps for a temporal edge (default 300).")
+    p_ag.add_argument("--affective-tolerance", type=float, default=0.3, dest="affective_tolerance",
+                      help="Max |valence_a - valence_b| for an affective edge (default 0.3).")
+    p_ag.set_defaults(func=cmd_association_graph)
+
+    # activation
+    p_act = sub.add_parser("activation",
+                            help="Run spreading activation from seed memory IDs.")
+    p_act.add_argument("seed_ids", nargs="+", metavar="MEMORY_ID",
+                       help="One or more memory IDs to start activation from.")
+    p_act.add_argument("--decay", type=float, default=0.5,
+                       help="Activation decay factor per hop (default 0.5).")
+    p_act.add_argument("--steps", type=int, default=3,
+                       help="Maximum hop depth (default 3).")
+    p_act.set_defaults(func=cmd_activation)
+
+    # discover-insights
+    p_di = sub.add_parser("discover-insights",
+                           help="Find cross-domain memory bridges and generate insight memories.")
+    p_di.add_argument("--session-id", default=None, dest="session_id")
+    p_di.add_argument("--max-insights", type=int, default=8, dest="max_insights",
+                      help="Maximum insight memories to generate (default 8).")
+    p_di.add_argument("--min-bridge-weight", type=float, default=0.45, dest="min_bridge_weight",
+                      help="Minimum edge weight to qualify as a bridge (default 0.45).")
+    p_di.add_argument("--no-rebuild", action="store_true", dest="no_rebuild",
+                      help="Skip rebuilding the association graph.")
+    p_di.set_defaults(func=cmd_discover_insights)
+
+    # associative-retrieve
+    p_ar = sub.add_parser("associative-retrieve",
+                           help="Retrieve memories via spreading activation (from query or seed IDs).")
+    p_ar.add_argument("--query", "-q", default=None, help="Text query to find seed memories.")
+    p_ar.add_argument("--seed-ids", nargs="*", default=None, dest="seed_ids",
+                      help="Explicit seed memory IDs (overrides --query).")
+    p_ar.add_argument("--seed-count", type=int, default=3, dest="seed_count",
+                      help="Seeds to pick from query (default 3).")
+    p_ar.add_argument("--max", "-n", type=int, default=10)
+    p_ar.add_argument("--steps", type=int, default=3)
+    p_ar.add_argument("--decay", type=float, default=0.5)
+    p_ar.set_defaults(func=cmd_associative_retrieve)
+
+    # association-stats
+    p_as2 = sub.add_parser("association-stats",
+                            help="Show statistics for the current association graph.")
+    p_as2.set_defaults(func=cmd_association_stats)
 
     return parser
 

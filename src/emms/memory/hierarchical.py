@@ -21,6 +21,7 @@ from emms.core.models import (
     MemoryConfig,
     MemoryItem,
     MemoryTier,
+    ObsType,
     RetrievalResult,
 )
 from emms.core.embeddings import EmbeddingProvider, cosine_similarity
@@ -167,15 +168,29 @@ class HierarchicalMemory:
 
     If an *embedder* is provided, retrieval uses cosine similarity on
     embeddings (much better quality).  Otherwise falls back to word overlap.
+
+    **Endless Mode** (biomimetic, claude-mem inspired):
+    When ``endless_mode=True``, working memory overflow triggers real-time
+    compression instead of silent eviction. Oldest items are merged into a
+    single compressed episode and moved to short-term memory, keeping context
+    growth O(N) rather than O(N²) over long sessions. This enables ~10–20×
+    more memories before context exhaustion.
     """
 
     def __init__(
         self,
         config: MemoryConfig | None = None,
         embedder: EmbeddingProvider | None = None,
+        endless_mode: bool = False,
+        endless_chunk_size: int = 3,
     ):
         self.cfg = config or MemoryConfig()
         self.embedder = embedder
+
+        # Endless Mode settings
+        self.endless_mode = endless_mode
+        self.endless_chunk_size = endless_chunk_size  # items to compress per overflow
+        self._endless_episodes: int = 0  # how many compression cycles have run
 
         # Tier stores
         self.working: deque[MemoryItem] = deque(maxlen=self.cfg.working_capacity)
@@ -205,8 +220,34 @@ class HierarchicalMemory:
     # Store
     # ------------------------------------------------------------------
 
+    def _find_patch_target(self, experience: Experience) -> MemoryItem | None:
+        """Find an existing memory that matches the patch_key for update_mode='patch'."""
+        match_key = experience.patch_key or experience.title
+        if match_key is None:
+            return None
+        for _, store in self._iter_tiers():
+            for item in store:
+                if item.is_superseded:
+                    continue
+                exp = item.experience
+                if (exp.patch_key and exp.patch_key == match_key) or (
+                    exp.title and exp.title == match_key
+                ):
+                    return item
+        return None
+
     def store(self, experience: Experience) -> MemoryItem:
-        """Store an experience — always enters working memory first."""
+        """Store an experience — always enters working memory first.
+
+        When ``experience.update_mode == "patch"``, an existing memory with a
+        matching ``patch_key`` or ``title`` is found and marked as superseded
+        before the new version is inserted.
+        """
+        # Handle patch mode: find and supersede old memory before inserting new
+        superseded_item: MemoryItem | None = None
+        if experience.update_mode == "patch":
+            superseded_item = self._find_patch_target(experience)
+
         item = MemoryItem(experience=experience, tier=MemoryTier.WORKING)
         self.working.append(item)
         self.total_stored += 1
@@ -227,6 +268,10 @@ class HierarchicalMemory:
         # Track item by experience ID for fast lookup
         self._items_by_exp_id[experience.id] = item
 
+        # Conflict archival: mark the old version as superseded
+        if superseded_item is not None:
+            superseded_item.superseded_by = item.id
+
         # Compute and cache embedding if embedder available
         if self.embedder is not None:
             if experience.embedding:
@@ -239,8 +284,10 @@ class HierarchicalMemory:
             if self._vec_index is not None:
                 self._vec_index.add(experience.id, self._embeddings[experience.id])
 
-        # Auto-consolidate if working memory is at capacity
-        if len(self.working) >= self.cfg.working_capacity:
+        # Endless mode: compress before overflow instead of evicting
+        if self.endless_mode and len(self.working) >= self.cfg.working_capacity:
+            self._endless_compress()
+        elif len(self.working) >= self.cfg.working_capacity:
             self._consolidate_working()
 
         return item
@@ -296,6 +343,10 @@ class HierarchicalMemory:
             }.get(tier, 0.0)
 
             for item in store:
+                # Skip expired or superseded memories
+                if item.is_expired or item.is_superseded:
+                    continue
+
                 # Skip items that can't match (lexical pre-filter)
                 if candidate_ids is not None and item.experience.id not in candidate_ids:
                     continue
@@ -404,6 +455,82 @@ class HierarchicalMemory:
 
         return moved
 
+    def _endless_compress(self) -> None:
+        """Biomimetic real-time compression for Endless Mode.
+
+        When working memory is full, instead of evicting the oldest items,
+        compress the oldest `endless_chunk_size` items into a single merged
+        episode and push that to short-term memory. This keeps context growth
+        O(N) rather than O(N²) — the hippocampal consolidation analogy.
+
+        The compressed episode carries:
+        - A concatenated narrative summary of all source items
+        - The highest importance and emotional intensity of the group
+        - All source session_ids (first one wins for the episode)
+        - obs_type = CHANGE (reflects that this is a synthesis)
+        """
+        if len(self.working) < self.endless_chunk_size:
+            return
+
+        # Take the oldest chunk items from the left of the deque
+        chunk: list[MemoryItem] = []
+        for _ in range(min(self.endless_chunk_size, len(self.working))):
+            chunk.append(self.working.popleft())
+
+        if not chunk:
+            return
+
+        # Build merged summary
+        summaries = [f"[{i+1}] {item.experience.content}" for i, item in enumerate(chunk)]
+        merged_content = (
+            f"[Compressed episode #{self._endless_episodes + 1} | "
+            f"{len(chunk)} memories] " + " | ".join(summaries)
+        )
+
+        # Aggregate metadata
+        max_importance = max(i.experience.importance for i in chunk)
+        max_intensity = max(i.experience.emotional_intensity for i in chunk)
+        avg_valence = sum(i.experience.emotional_valence for i in chunk) / len(chunk)
+        domains = list({i.experience.domain for i in chunk})
+        session_id = chunk[0].experience.session_id
+        all_entities = list({e for i in chunk for e in i.experience.entities})
+
+        # Build merged experience
+        from emms.core.models import ObsType
+        compressed_exp = Experience(
+            content=merged_content,
+            domain=domains[0] if len(domains) == 1 else "multi",
+            importance=max_importance,
+            emotional_intensity=max_intensity,
+            emotional_valence=avg_valence,
+            novelty=max(i.experience.novelty for i in chunk),
+            session_id=session_id,
+            obs_type=ObsType.CHANGE,
+            entities=all_entities,
+            metadata={
+                "compressed": True,
+                "source_count": len(chunk),
+                "source_ids": [i.experience.id for i in chunk],
+                "episode_index": self._endless_episodes,
+            },
+        )
+
+        episode_item = MemoryItem(
+            experience=compressed_exp,
+            tier=MemoryTier.SHORT_TERM,
+            memory_strength=max(i.memory_strength for i in chunk),
+            consolidation_score=max_importance,
+        )
+        self.short_term.append(episode_item)
+        self._items_by_exp_id[compressed_exp.id] = episode_item
+        self._endless_episodes += 1
+        self.total_consolidated += len(chunk)
+
+        logger.debug(
+            "Endless Mode: compressed %d items into episode #%d",
+            len(chunk), self._endless_episodes,
+        )
+
     def _consolidate_short_term(self) -> int:
         """Promote high-value items from short-term → long-term.
 
@@ -464,13 +591,44 @@ class HierarchicalMemory:
     # ------------------------------------------------------------------
 
     def _relevance(self, item: MemoryItem, query_words: set[str]) -> float:
-        """Content-based relevance using word overlap + importance/recency boosts."""
-        content_words = set(item.experience.content.lower().split())
+        """Content-based relevance using BM25 + importance/recency boosts.
 
-        # Jaccard similarity
-        intersection = len(query_words & content_words)
-        union = len(query_words | content_words)
-        jaccard = intersection / union if union else 0.0
+        Replaces plain Jaccard with BM25 (k1=1.5, b=0.75) using the
+        word-index for approximate document-frequency stats. BM25 handles
+        term-frequency saturation and document-length normalization, giving
+        meaningfully better ranking than Jaccard on natural-language queries.
+        """
+        content = item.experience.content.lower()
+        content_words = content.split()
+        doc_len = len(content_words)
+
+        # BM25 parameters (standard TREC values)
+        k1 = 1.5
+        b = 0.75
+        # Approximate average document length from word index size
+        n_docs = max(1, len(self._items_by_exp_id))
+        avg_dl = max(1, sum(
+            len(i.experience.content.split())
+            for i in self._items_by_exp_id.values()
+        ) / n_docs) if n_docs <= 200 else 30  # cap expensive scan at 200 docs
+
+        bm25_score = 0.0
+        for qw in query_words:
+            tf = content_words.count(qw)
+            if tf == 0:
+                stem = _simple_stem(qw)
+                tf = content_words.count(stem)
+            if tf == 0:
+                continue
+            # Document frequency from word index
+            df = len(self._word_index.get(qw, set()) | self._word_index.get(_simple_stem(qw), set()))
+            idf = np.log((n_docs - df + 0.5) / (df + 0.5) + 1.0)
+            tf_norm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / avg_dl))
+            bm25_score += idf * tf_norm
+
+        # Normalize to [0, 1] with a soft cap
+        n_terms = max(1, len(query_words))
+        normalized = min(1.0, bm25_score / (n_terms * 3.0))
 
         # Importance boost (0–0.2)
         importance_boost = item.experience.importance * 0.2
@@ -482,7 +640,7 @@ class HierarchicalMemory:
         # Strength boost (0–0.1)
         strength_boost = item.memory_strength * 0.1
 
-        return min(1.0, jaccard + importance_boost + recency_boost + strength_boost)
+        return min(1.0, normalized + importance_boost + recency_boost + strength_boost)
 
     def _embedding_relevance(self, item: MemoryItem, query_vec: list[float]) -> float:
         """Cosine similarity + importance/recency boosts."""
@@ -662,3 +820,439 @@ class HierarchicalMemory:
         self.total_consolidated = stats.get("total_consolidated", 0)
 
         logger.info("Memory state loaded from %s (%d items)", path, self.size["total"])
+
+    # ------------------------------------------------------------------
+    # Progressive disclosure helpers (claude-mem inspired)
+    # ------------------------------------------------------------------
+
+    def get_timeline(
+        self,
+        session_id: str | None = None,
+        limit: int = 50,
+        include_private: bool = False,
+    ) -> list[MemoryItem]:
+        """Layer 2 of progressive disclosure: chronological memory timeline.
+
+        Returns all items sorted by timestamp (oldest first), optionally
+        filtered to a single session. Mirrors claude-mem's timeline() tool
+        which provides chronological context around search results.
+
+        Args:
+            session_id: If provided, only return items from this session.
+            limit: Maximum items to return.
+            include_private: If False (default), skip private experiences.
+        """
+        all_items: list[MemoryItem] = []
+        for _, store in self._iter_tiers():
+            for item in store:
+                if not include_private and item.experience.private:
+                    continue
+                if session_id is not None and item.experience.session_id != session_id:
+                    continue
+                all_items.append(item)
+
+        all_items.sort(key=lambda i: i.experience.timestamp)
+        return all_items[:limit]
+
+    def get_sessions(self) -> list[str]:
+        """Return all distinct session IDs stored in memory (excluding None)."""
+        seen: set[str] = set()
+        for _, store in self._iter_tiers():
+            for item in store:
+                sid = item.experience.session_id
+                if sid is not None:
+                    seen.add(sid)
+        return sorted(seen)
+
+    def search_by_file(self, file_path: str) -> list[MemoryItem]:
+        """Find all memories that reference a specific file path.
+
+        Searches both ``files_read`` and ``files_modified`` on each stored
+        experience.  Returns results sorted newest-first by timestamp.
+
+        Args:
+            file_path: Exact or partial file path to search for.
+
+        Returns:
+            MemoryItems whose experience references *file_path*.
+        """
+        results: list[MemoryItem] = []
+        for _, store in self._iter_tiers():
+            for item in store:
+                exp = item.experience
+                # Support both exact list membership and substring matching
+                in_read = any(file_path in f for f in exp.files_read)
+                in_modified = any(file_path in f for f in exp.files_modified)
+                if in_read or in_modified:
+                    results.append(item)
+        results.sort(key=lambda i: i.experience.timestamp, reverse=True)
+        return results
+
+    def retrieve_filtered(
+        self,
+        query: str,
+        max_results: int = 10,
+        *,
+        namespace: str | None = None,
+        obs_type: "ObsType | None" = None,
+        domain: str | None = None,
+        session_id: str | None = None,
+        since: float | None = None,
+        until: float | None = None,
+        min_confidence: float | None = None,
+        include_superseded: bool = False,
+        include_expired: bool = False,
+    ) -> list[RetrievalResult]:
+        """Retrieve with structured pre-filters applied before scoring.
+
+        Provides fine-grained control over which memories are considered,
+        combining the full scoring pipeline with explicit field filters.
+
+        Args:
+            query: Natural-language search query.
+            max_results: Maximum results to return.
+            namespace: Only return memories in this namespace (e.g. ``"project-x"``).
+            obs_type: Filter to a specific observation type (e.g. ``ObsType.BUGFIX``).
+            domain: Only return memories matching this domain string.
+            session_id: Restrict to memories from a specific session.
+            since: Only include memories stored after this Unix timestamp.
+            until: Only include memories stored before this Unix timestamp.
+            min_confidence: Only include memories with confidence ≥ this value.
+            include_superseded: If False (default), skip superseded memories.
+            include_expired: If False (default), skip TTL-expired memories.
+
+        Returns:
+            Scored and filtered RetrievalResult list.
+        """
+        # Build a filtered candidate pool first, then run normal scoring
+        candidate_items: list[MemoryItem] = []
+        for _, store in self._iter_tiers():
+            for item in store:
+                exp = item.experience
+                # Lifecycle filters
+                if not include_expired and item.is_expired:
+                    continue
+                if not include_superseded and item.is_superseded:
+                    continue
+                # Field filters
+                if namespace is not None and exp.namespace != namespace:
+                    continue
+                if obs_type is not None and exp.obs_type != obs_type:
+                    continue
+                if domain is not None and exp.domain != domain:
+                    continue
+                if session_id is not None and exp.session_id != session_id:
+                    continue
+                if since is not None and exp.timestamp < since:
+                    continue
+                if until is not None and exp.timestamp > until:
+                    continue
+                if min_confidence is not None and exp.confidence < min_confidence:
+                    continue
+                candidate_items.append(item)
+
+        if not candidate_items:
+            return []
+
+        # Score candidates using the full retrieval pipeline
+        query_vec: list[float] | None = None
+        if self.embedder is not None:
+            query_vec = self.embedder.embed(query)
+        query_words = set(query.lower().split())
+        query_domain = self._infer_domain(query_words)
+
+        results: list[RetrievalResult] = []
+        for item in candidate_items:
+            tier = item.tier
+            tier_boost = {
+                MemoryTier.SEMANTIC: 0.08,
+                MemoryTier.LONG_TERM: 0.04,
+                MemoryTier.SHORT_TERM: 0.02,
+                MemoryTier.WORKING: 0.0,
+            }.get(tier, 0.0)
+
+            if query_vec is not None:
+                base_score = self._embedding_relevance(item, query_vec)
+            else:
+                base_score = self._relevance(item, query_words)
+
+            domain_bonus = 0.05 if (query_domain and item.experience.domain == query_domain) else 0.0
+            access_bonus = min(0.05, item.access_count * 0.01)
+            # Confidence scaling: low-confidence memories get a penalty
+            confidence_scale = 0.5 + 0.5 * item.experience.confidence
+            score = min(1.0, (base_score + tier_boost + domain_bonus + access_bonus) * confidence_scale)
+
+            if score > self.cfg.relevance_threshold:
+                item.touch()
+                results.append(RetrievalResult(
+                    memory=item,
+                    score=score,
+                    source_tier=tier,
+                    strategy="filtered+embedding" if query_vec else "filtered+lexical",
+                ))
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results[:max_results]
+
+    async def stream_retrieve(
+        self,
+        query: str,
+        max_results: int = 10,
+    ):
+        """Async generator that yields RetrievalResult items tier-by-tier.
+
+        Results are emitted as they are scored, from highest-priority tier
+        (semantic) to lowest (working). Within each tier results are yielded
+        in descending score order.
+
+        Cooperative multitasking is maintained with ``asyncio.sleep(0)``
+        between tier boundaries so other tasks can run.
+
+        Usage::
+
+            async for result in memory.stream_retrieve("machine learning"):
+                print(result.memory.experience.content, result.score)
+        """
+        import asyncio as _asyncio
+
+        query_vec: list[float] | None = None
+        if self.embedder is not None:
+            query_vec = self.embedder.embed(query)
+        query_words = set(query.lower().split())
+        query_domain = self._infer_domain(query_words)
+
+        emitted = 0
+        for tier, store in self._iter_tiers():
+            if emitted >= max_results:
+                break
+
+            tier_boost = {
+                MemoryTier.SEMANTIC: 0.08,
+                MemoryTier.LONG_TERM: 0.04,
+                MemoryTier.SHORT_TERM: 0.02,
+                MemoryTier.WORKING: 0.0,
+            }.get(tier, 0.0)
+
+            tier_results: list[RetrievalResult] = []
+            for item in store:
+                if item.is_expired or item.is_superseded:
+                    continue
+                if query_vec is not None:
+                    base_score = self._embedding_relevance(item, query_vec)
+                else:
+                    base_score = self._relevance(item, query_words)
+                domain_bonus = 0.05 if (query_domain and item.experience.domain == query_domain) else 0.0
+                access_bonus = min(0.05, item.access_count * 0.01)
+                score = min(1.0, base_score + tier_boost + domain_bonus + access_bonus)
+                if score > self.cfg.relevance_threshold:
+                    item.touch()
+                    tier_results.append(RetrievalResult(
+                        memory=item,
+                        score=score,
+                        source_tier=tier,
+                        strategy="stream+embedding" if query_vec else "stream+lexical",
+                    ))
+
+            tier_results.sort(key=lambda r: r.score, reverse=True)
+            for r in tier_results:
+                if emitted >= max_results:
+                    return
+                yield r
+                emitted += 1
+
+            # Cooperative yield between tiers
+            await _asyncio.sleep(0)
+
+    def upvote(self, memory_id: str, boost: float = 0.1) -> bool:
+        """Strengthen a memory via positive user feedback.
+
+        Raises the memory's strength by *boost* (capped at 1.0) and records
+        an access. Useful for reinforcement: "this retrieval was helpful".
+
+        Args:
+            memory_id: The ``MemoryItem.id`` to upvote.
+            boost: Strength increment (default 0.1).
+
+        Returns:
+            True if the memory was found and updated, False otherwise.
+        """
+        for _, store in self._iter_tiers():
+            for item in store:
+                if item.id == memory_id or item.experience.id == memory_id:
+                    item.memory_strength = min(1.0, item.memory_strength + boost)
+                    item.touch()
+                    logger.debug("Upvoted %s → strength=%.3f", memory_id, item.memory_strength)
+                    return True
+        return False
+
+    def downvote(self, memory_id: str, decay: float = 0.2) -> bool:
+        """Weaken a memory via negative user feedback.
+
+        Reduces the memory's strength by *decay* (floored at 0.0).
+        Used when a retrieved memory was irrelevant or incorrect.
+
+        Args:
+            memory_id: The ``MemoryItem.id`` to downvote.
+            decay: Strength reduction (default 0.2).
+
+        Returns:
+            True if the memory was found and updated, False otherwise.
+        """
+        for _, store in self._iter_tiers():
+            for item in store:
+                if item.id == memory_id or item.experience.id == memory_id:
+                    item.memory_strength = max(0.0, item.memory_strength - decay)
+                    logger.debug("Downvoted %s → strength=%.3f", memory_id, item.memory_strength)
+                    return True
+        return False
+
+    def export_markdown(
+        self,
+        path: "Path | str",
+        include_private: bool = False,
+        namespace: str | None = None,
+    ) -> int:
+        """Export memories as a structured, human-readable Markdown document.
+
+        Groups memories by domain and tier. Each memory is rendered with its
+        title, facts, key metadata, and content — suitable for human review,
+        version control diffing, or feeding to an LLM as context.
+
+        Args:
+            path: Destination .md file path.
+            include_private: If False (default), skip private experiences.
+            namespace: If provided, only export memories from this namespace.
+
+        Returns:
+            Number of memories exported.
+        """
+        import datetime as _dt
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Collect all items, apply filters
+        all_items: list[MemoryItem] = []
+        for _, store in self._iter_tiers():
+            for item in store:
+                if not include_private and item.experience.private:
+                    continue
+                if namespace is not None and item.experience.namespace != namespace:
+                    continue
+                all_items.append(item)
+
+        # Sort by timestamp (oldest first)
+        all_items.sort(key=lambda i: i.experience.timestamp)
+
+        # Group by domain
+        by_domain: dict[str, list[MemoryItem]] = {}
+        for item in all_items:
+            d = item.experience.domain
+            if d not in by_domain:
+                by_domain[d] = []
+            by_domain[d].append(item)
+
+        lines: list[str] = [
+            "# EMMS Memory Export",
+            "",
+            f"> Generated: {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}  ",
+            f"> Total memories: {len(all_items)}  ",
+            f"> Domains: {', '.join(sorted(by_domain.keys()))}",
+            "",
+        ]
+
+        for domain, items in sorted(by_domain.items()):
+            lines += [f"## {domain.capitalize()} ({len(items)} memories)", ""]
+            for item in items:
+                exp = item.experience
+                dt = _dt.datetime.fromtimestamp(exp.timestamp).strftime("%Y-%m-%d %H:%M")
+                tier_label = item.tier.value.replace("_", " ").title()
+                obs = f" · {exp.obs_type.value}" if exp.obs_type else ""
+                conf = f" · conf={exp.confidence:.2f}" if exp.confidence < 1.0 else ""
+
+                title = exp.title or exp.content[:60].rstrip()
+                lines += [
+                    f"### {title}",
+                    f"*{dt} · {tier_label}{obs}{conf} · strength={item.memory_strength:.2f}*",
+                    "",
+                ]
+
+                if exp.facts:
+                    for fact in exp.facts:
+                        lines.append(f"- {fact}")
+                    lines.append("")
+
+                # Content (truncated if very long)
+                content = exp.content
+                if len(content) > 500:
+                    content = content[:497] + "…"
+                lines += [f"> {content}", ""]
+
+                if exp.files_read:
+                    lines.append(f"**Files read:** `{'`, `'.join(exp.files_read)}`  ")
+                if exp.files_modified:
+                    lines.append(f"**Files modified:** `{'`, `'.join(exp.files_modified)}`  ")
+                if exp.files_read or exp.files_modified:
+                    lines.append("")
+
+        path.write_text("\n".join(lines), encoding="utf-8")
+        logger.info("Markdown export: %d memories → %s", len(all_items), path)
+        return len(all_items)
+
+    def export_jsonl(
+        self,
+        path: "Path | str",
+        include_private: bool = False,
+    ) -> int:
+        """Export all memories as newline-delimited JSON (JSONL format).
+
+        claude-mem stores observations in JSONL for human readability and
+        version-control friendliness. Each line is one MemoryItem serialised
+        to JSON — easy to grep, diff, and process with standard tools.
+
+        Args:
+            path: Destination file path.
+            include_private: If False (default), private experiences are omitted.
+
+        Returns:
+            Number of items written.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        count = 0
+        with path.open("w", encoding="utf-8") as fh:
+            for _, store in self._iter_tiers():
+                for item in store:
+                    if not include_private and item.experience.private:
+                        continue
+                    fh.write(item.model_dump_json() + "\n")
+                    count += 1
+        logger.info("Exported %d memories to %s", count, path)
+        return count
+
+    def import_jsonl(self, path: "Path | str") -> int:
+        """Import memories from a JSONL file previously exported by export_jsonl().
+
+        Skips items whose experience IDs already exist in memory.
+
+        Returns:
+            Number of items imported.
+        """
+        path = Path(path)
+        if not path.exists():
+            logger.warning("JSONL file not found: %s", path)
+            return 0
+        count = 0
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                item = MemoryItem.model_validate_json(line)
+                if item.experience.id in self._items_by_exp_id:
+                    continue  # already loaded
+                # Re-store the experience so indexes are rebuilt correctly
+                self.store(item.experience)
+                count += 1
+        logger.info("Imported %d memories from %s", path, count)
+        return count

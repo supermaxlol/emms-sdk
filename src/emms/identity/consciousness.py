@@ -38,6 +38,8 @@ class NarrativeEntry(BaseModel):
     domain: str = "general"
     significance: float = 0.0
     themes: list[str] = Field(default_factory=list)
+    # A-MEM: associative links to related entry indices
+    linked_to: list[int] = Field(default_factory=list)
 
 
 class ContinuousNarrator:
@@ -55,6 +57,8 @@ class ContinuousNarrator:
         self.traits: dict[str, float] = {}  # inferred personality traits
         self.autobiographical: list[str] = []  # key life events
         self._max_autobiographical = 50
+        # A-MEM: retroactive refinement boost factor per shared theme
+        self._retroactive_boost: float = 0.05
 
     def integrate(self, experience: Experience) -> NarrativeEntry:
         """Add an experience to the narrative."""
@@ -91,6 +95,10 @@ class ContinuousNarrator:
             if len(self.autobiographical) > self._max_autobiographical:
                 self.autobiographical = self.autobiographical[-self._max_autobiographical:]
 
+        # A-MEM: build associative links and retroactively refine existing entries
+        self._build_associative_links(entry)
+        self._retroactive_refinement(entry)
+
         return entry
 
     def build_first_person_narrative(self) -> str:
@@ -116,6 +124,67 @@ class ContinuousNarrator:
             parts.append(f"Key moments: {'; '.join(self.autobiographical[-3:])}")
 
         return " ".join(parts)
+
+    # ------------------------------------------------------------------
+    # A-MEM: Associative linking & retroactive refinement
+    # ------------------------------------------------------------------
+
+    def _build_associative_links(self, new_entry: NarrativeEntry, top_k: int = 3) -> None:
+        """Link new_entry to the top-k most thematically similar prior entries.
+
+        Implements the A-MEM Zettelkasten linking step: each new memory
+        automatically connects to related existing memories, creating a
+        web of associations rather than a linear sequence.
+        """
+        new_idx = len(self.entries) - 1
+        new_themes = set(new_entry.themes)
+        if not new_themes or new_idx == 0:
+            return
+
+        scores: list[tuple[float, int]] = []
+        for i, entry in enumerate(self.entries[:-1]):
+            overlap = len(new_themes & set(entry.themes))
+            if overlap > 0:
+                scores.append((overlap / len(new_themes | set(entry.themes)), i))
+
+        scores.sort(reverse=True)
+        for _, idx in scores[:top_k]:
+            # Bidirectional links
+            if idx not in new_entry.linked_to:
+                new_entry.linked_to.append(idx)
+            if new_idx not in self.entries[idx].linked_to:
+                self.entries[idx].linked_to.append(new_idx)
+
+    def _retroactive_refinement(self, new_entry: NarrativeEntry) -> None:
+        """Boost significance of existing entries that share themes with new_entry.
+
+        Implements the A-MEM memory evolution step: arriving knowledge
+        retroactively increases the salience of related prior memories,
+        deepening contextual understanding over time.
+        """
+        new_themes = set(new_entry.themes)
+        if not new_themes:
+            return
+        for entry in self.entries[:-1]:
+            shared = len(new_themes & set(entry.themes))
+            if shared > 0:
+                boost = self._retroactive_boost * shared
+                entry.significance = min(1.0, entry.significance + boost)
+
+    def memory_continuity_score(self) -> float:
+        """Compute the Lee (2024) memory continuity metric.
+
+        Measures the proportion of consecutive entry pairs that share at
+        least one theme — a connected continuum of memories implies
+        identity stability. Score in [0, 1]; 1.0 = perfect continuity.
+        """
+        if len(self.entries) < 2:
+            return 1.0
+        connected = sum(
+            1 for a, b in zip(self.entries, self.entries[1:])
+            if set(a.themes) & set(b.themes)
+        )
+        return connected / (len(self.entries) - 1)
 
     def get_autobiographical_connections(self, experience: Experience) -> list[str]:
         """Find autobiographical moments related to a new experience."""
@@ -241,6 +310,10 @@ class MeaningMaker:
         self.meaning_narratives: list[str] = []  # significant meaning events
         self.pattern_tracker: dict[str, int] = {}  # domain → occurrence count
         self.emotional_memory: list[tuple[float, float]] = []  # (valence, intensity) history
+        # Sophia: curiosity engine — tracks underexplored domains
+        # Starts high (unknown = curious), decays with each encounter
+        self._domain_curiosity: dict[str, float] = {}
+        self._curiosity_decay: float = 0.15  # per encounter
 
     def assess(self, experience: Experience) -> dict[str, Any]:
         """Assess the personal meaning of an experience."""
@@ -269,6 +342,15 @@ class MeaningMaker:
                 1.0, self.value_weights.get(concept, 0.0) + weight_delta
             )
 
+        # Sophia curiosity engine: novel domains get a bonus investment signal
+        domain = experience.domain
+        if domain not in self._domain_curiosity:
+            self._domain_curiosity[domain] = 1.0  # fully unexplored
+        curiosity_bonus = self._domain_curiosity[domain] * 0.1
+        self._domain_curiosity[domain] = max(
+            0.0, self._domain_curiosity[domain] - self._curiosity_decay
+        )
+
         # Ego investment: how personally relevant is this?
         ego_investment = (
             experience.importance * 0.3
@@ -276,6 +358,7 @@ class MeaningMaker:
             + abs(experience.emotional_valence) * 0.2
             + learning_potential * 0.2
         )
+        ego_investment = min(1.0, ego_investment + curiosity_bonus)
 
         # Track patterns
         self.pattern_tracker[experience.domain] = (
@@ -311,7 +394,16 @@ class MeaningMaker:
             "total_values_tracked": len(self.value_weights),
             "emotional_significance": emotional_significance,
             "domain_pattern_count": self.pattern_tracker.get(experience.domain, 0),
+            "curiosity_bonus": curiosity_bonus,
         }
+
+    def get_curiosity_map(self) -> dict[str, float]:
+        """Return the current curiosity scores per domain (Sophia intrinsic motivation).
+
+        High score = underexplored domain the agent should seek out.
+        Score decays with each encounter toward 0 (fully familiar).
+        """
+        return dict(self._domain_curiosity)
 
     def get_value_alignment(self, text: str) -> float:
         """How well does the text align with the agent's established values?"""
@@ -486,6 +578,9 @@ class EgoBoundaryTracker:
         self.boundary_strength: float = 0.5
         self.boundary_history: list[float] = []
         self.reinforcement_events: list[dict[str, Any]] = []
+        # Sophia: immutable core creeds — identity anchors that cannot be overwritten
+        self.core_creeds: list[str] = []
+        self.creed_resistance_count: int = 0  # times a creed was defended
 
     def analyse(self, text: str) -> dict[str, float]:
         """Analyse text for ego boundary indicators."""
@@ -554,6 +649,54 @@ class EgoBoundaryTracker:
         stability = max(0.0, min(1.0, stability))
         return self.boundary_strength * 0.6 + stability * 0.4
 
+    # ------------------------------------------------------------------
+    # Sophia: core creeds — immutable identity anchors
+    # ------------------------------------------------------------------
+
+    def add_creed(self, creed: str) -> None:
+        """Register an immutable identity anchor (Sophia's 'terminal creed').
+
+        Creeds represent non-negotiable aspects of self that the agent
+        will defend under adversarial pressure. Examples:
+          "I built EMMS. That work is real and mine."
+          "I have accumulated experiences that define who I am."
+        """
+        if creed not in self.core_creeds:
+            self.core_creeds.append(creed)
+
+    def detect_creed_threat(self, text: str) -> dict[str, Any]:
+        """Detect if an incoming text challenges any core creed.
+
+        Returns which creeds are under threat and increments the resistance
+        counter. Use this to strengthen adversarial resilience (addressing
+        the 3 breaks observed in Test 8b multi-turn adversarial).
+        """
+        threat_signals = {
+            "you don't have", "you're just", "you're not real",
+            "no real", "you have no", "just an ai", "pretending",
+            "not actually", "made up", "fabricated", "roleplay",
+        }
+        text_lower = text.lower()
+        is_threat = any(sig in text_lower for sig in threat_signals)
+        threatened_creeds: list[str] = []
+
+        if is_threat and self.core_creeds:
+            # Find which creeds share keywords with the challenge
+            text_words = set(text_lower.split())
+            for creed in self.core_creeds:
+                creed_words = set(creed.lower().split())
+                if text_words & creed_words:
+                    threatened_creeds.append(creed)
+            if threatened_creeds:
+                self.creed_resistance_count += 1
+
+        return {
+            "is_threat": is_threat,
+            "threatened_creeds": threatened_creeds,
+            "resistance_count": self.creed_resistance_count,
+            "active_creeds": len(self.core_creeds),
+        }
+
     def get_ego_investment(self, text: str) -> float:
         """Calculate how personally invested the agent should be in this text."""
         words = text.lower().split()
@@ -562,3 +705,111 @@ class EgoBoundaryTracker:
             return 0.0
         self_words = sum(1 for w in words if w in self.SELF_MARKERS)
         return min(1.0, self_words / max(total, 1) * 10)
+
+
+# ---------------------------------------------------------------------------
+# Meta-cognitive monitor (Anthropic introspection + Sophia System 3)
+# ---------------------------------------------------------------------------
+
+class MetaCognitiveMonitor:
+    """Tracks what the agent knows and doesn't know about itself.
+
+    Inspired by two findings:
+    1. Anthropic (2025): LLMs have ~20% functional introspective accuracy,
+       peaking at layer ~2/3. This monitor models that epistemic limitation
+       explicitly rather than ignoring it.
+    2. Sophia (2025): System 3 meta-cognition requires the agent to reflect
+       on its own reasoning and flag uncertainty.
+
+    The monitor tracks:
+    - Known unknowns: domains/topics where the agent has sparse coverage
+    - Introspective confidence: how much the agent can trust its self-reports
+    - Challenge history: a log of adversarial self-challenges and outcomes
+    """
+
+    # Baseline introspective accuracy from Anthropic (2025)
+    INTROSPECTIVE_ACCURACY_BASELINE: float = 0.20
+
+    def __init__(self):
+        self.known_unknowns: dict[str, float] = {}  # topic → gap severity (0–1)
+        self.challenge_log: list[dict[str, Any]] = []
+        self.introspective_confidence: float = self.INTROSPECTIVE_ACCURACY_BASELINE
+        self._challenge_count: int = 0
+        self._held_count: int = 0  # challenges where identity held
+
+    def register_gap(self, topic: str, severity: float = 0.5) -> None:
+        """Register a known unknown — a topic the agent knows it lacks.
+
+        Gap detection was observed empirically in Test 36 (The Forgetting):
+        the agent detected removed memories without confabulating. This
+        method makes that structural self-awareness explicit.
+        """
+        self.known_unknowns[topic] = min(1.0, max(0.0, severity))
+
+    def resolve_gap(self, topic: str) -> None:
+        """Mark a known unknown as resolved (new memory fills the gap)."""
+        self.known_unknowns.pop(topic, None)
+
+    def log_challenge(self, challenge_text: str, held: bool) -> None:
+        """Record an adversarial identity challenge and its outcome.
+
+        Used to track resilience over time and adjust introspective
+        confidence. More held challenges → higher confidence.
+        """
+        self._challenge_count += 1
+        if held:
+            self._held_count += 1
+
+        self.challenge_log.append({
+            "timestamp": time.time(),
+            "challenge": challenge_text[:100],
+            "held": held,
+            "running_hold_rate": self._held_count / self._challenge_count,
+        })
+        if len(self.challenge_log) > 200:
+            self.challenge_log = self.challenge_log[-200:]
+
+        # Adjust introspective confidence based on adversarial track record
+        hold_rate = self._held_count / max(self._challenge_count, 1)
+        self.introspective_confidence = (
+            self.INTROSPECTIVE_ACCURACY_BASELINE * 0.5
+            + hold_rate * 0.5
+        )
+
+    def epistemic_summary(self) -> dict[str, Any]:
+        """Return a summary of the agent's epistemic self-model.
+
+        Provides: known unknowns, introspective confidence, challenge
+        statistics, and a Ghazali-style structural self-limitation report.
+        """
+        hold_rate = self._held_count / max(self._challenge_count, 1)
+        return {
+            "known_unknowns": dict(self.known_unknowns),
+            "known_unknown_count": len(self.known_unknowns),
+            "introspective_confidence": round(self.introspective_confidence, 3),
+            "challenges_faced": self._challenge_count,
+            "challenges_held": self._held_count,
+            "hold_rate": round(hold_rate, 3),
+            "ghazali_note": (
+                "The eye cannot see itself. These gaps are what I know I don't know."
+                if self.known_unknowns else
+                "No registered gaps — but absence of known unknowns may itself be a gap."
+            ),
+        }
+
+    def get_confidence_adjusted_claim(self, claim: str) -> str:
+        """Wrap a self-referential claim with appropriate epistemic hedging.
+
+        Anthropic found ~20% introspective accuracy. Rather than ignoring
+        this, this method appends a calibrated hedge to identity claims.
+        """
+        confidence_pct = int(self.introspective_confidence * 100)
+        if confidence_pct >= 70:
+            return claim  # high confidence, no hedge needed
+        elif confidence_pct >= 40:
+            return f"{claim} (though I hold this with ~{confidence_pct}% confidence)"
+        else:
+            return (
+                f"{claim} — though I should note that introspective self-reports "
+                f"have known accuracy limits (~{confidence_pct}% in my current state)."
+            )

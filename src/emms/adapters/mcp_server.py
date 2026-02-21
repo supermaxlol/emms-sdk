@@ -614,6 +614,65 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "description": "Show a summary of the current session bridge state (open threads, emotional arc, presence at end).",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    # v0.12.0 tools
+    {
+        "name": "emms_build_association_graph",
+        "description": "Build an explicit association graph over all stored memories. Edges are auto-detected: semantic (cosine similarity), temporal (co-stored within window), affective (valence proximity), domain (same domain). Returns graph statistics.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "semantic_threshold": {"type": "number", "default": 0.5, "description": "Minimum cosine similarity for a semantic edge."},
+                "temporal_window": {"type": "number", "default": 300.0, "description": "Max seconds between stored_at timestamps for a temporal edge."},
+                "affective_tolerance": {"type": "number", "default": 0.3, "description": "Max |valence_a - valence_b| for an affective edge."},
+            },
+        },
+    },
+    {
+        "name": "emms_spreading_activation",
+        "description": "Run spreading activation from a list of seed memory IDs on the association graph. Returns activated memories sorted by activation score.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "seed_ids": {"type": "array", "items": {"type": "string"}, "description": "Memory IDs to start activation from."},
+                "decay": {"type": "number", "default": 0.5, "description": "Activation decay factor per hop."},
+                "steps": {"type": "integer", "default": 3, "description": "Maximum hop depth."},
+            },
+            "required": ["seed_ids"],
+        },
+    },
+    {
+        "name": "emms_discover_insights",
+        "description": "Find cross-domain memory bridges and generate insight memories. Walks the association graph for pairs from different domains with strong connections, synthesises new 'insight' memories.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "description": "Label for the insight report."},
+                "max_insights": {"type": "integer", "default": 8, "description": "Maximum insight memories to generate."},
+                "min_bridge_weight": {"type": "number", "default": 0.45, "description": "Minimum edge weight to qualify as a bridge."},
+                "rebuild_graph": {"type": "boolean", "default": True, "description": "Rebuild the association graph before searching."},
+            },
+        },
+    },
+    {
+        "name": "emms_associative_retrieve",
+        "description": "Retrieve memories via spreading activation from seed memory IDs or a text query. Returns memories reached through associative paths, not just direct matches.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Text query to find seed memories (used if seed_ids not given)."},
+                "seed_ids": {"type": "array", "items": {"type": "string"}, "description": "Explicit seed memory IDs (overrides query)."},
+                "seed_count": {"type": "integer", "default": 3, "description": "Seeds to select from query."},
+                "max_results": {"type": "integer", "default": 10},
+                "steps": {"type": "integer", "default": 3, "description": "Hop depth."},
+                "decay": {"type": "number", "default": 0.5},
+            },
+        },
+    },
+    {
+        "name": "emms_association_stats",
+        "description": "Return statistics for the current association graph: node/edge counts, mean degree, mean edge weight, most-connected memory, edge type breakdown.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -1387,6 +1446,110 @@ class EMCPServer:
             "summary": result.summary(),
         }
 
+    def _handle_build_association_graph(self, args: dict[str, Any]) -> dict[str, Any]:
+        stats = self.emms.build_association_graph(
+            semantic_threshold=float(args.get("semantic_threshold", 0.5)),
+            temporal_window=float(args.get("temporal_window", 300.0)),
+            affective_tolerance=float(args.get("affective_tolerance", 0.3)),
+        )
+        return {
+            "total_nodes": stats.total_nodes,
+            "total_edges": stats.total_edges,
+            "mean_degree": round(stats.mean_degree, 3),
+            "mean_edge_weight": round(stats.mean_edge_weight, 4),
+            "most_connected_id": stats.most_connected_id,
+            "edge_type_counts": stats.edge_type_counts,
+            "summary": stats.summary(),
+        }
+
+    def _handle_spreading_activation(self, args: dict[str, Any]) -> dict[str, Any]:
+        results = self.emms.spreading_activation(
+            seed_ids=args.get("seed_ids", []),
+            decay=float(args.get("decay", 0.5)),
+            steps=int(args.get("steps", 3)),
+        )
+        return {
+            "activated": [
+                {
+                    "memory_id": r.memory_id,
+                    "activation": round(r.activation, 4),
+                    "steps_from_seed": r.steps_from_seed,
+                    "path": r.path,
+                }
+                for r in results
+            ],
+            "total_activated": len(results),
+        }
+
+    def _handle_discover_insights(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.discover_insights(
+            session_id=args.get("session_id"),
+            max_insights=int(args.get("max_insights", 8)),
+            min_bridge_weight=float(args.get("min_bridge_weight", 0.45)),
+            rebuild_graph=bool(args.get("rebuild_graph", True)),
+        )
+        return {
+            "bridges_found": report.bridges_found,
+            "insights_generated": report.insights_generated,
+            "new_memory_ids": report.new_memory_ids,
+            "duration_ms": round(report.duration_seconds * 1000, 1),
+            "bridges": [
+                {
+                    "domain_a": b.domain_a,
+                    "domain_b": b.domain_b,
+                    "bridge_weight": round(b.bridge_weight, 4),
+                    "insight": b.insight_content[:120],
+                    "new_memory_id": b.new_memory_id,
+                }
+                for b in report.bridges[:5]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_associative_retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
+        seed_ids = args.get("seed_ids")
+        if seed_ids:
+            results = self.emms.associative_retrieve(
+                seed_ids=seed_ids,
+                max_results=int(args.get("max_results", 10)),
+                steps=int(args.get("steps", 3)),
+                decay=float(args.get("decay", 0.5)),
+            )
+        else:
+            results = self.emms.associative_retrieve_by_query(
+                query=args.get("query", ""),
+                seed_count=int(args.get("seed_count", 3)),
+                max_results=int(args.get("max_results", 10)),
+                steps=int(args.get("steps", 3)),
+                decay=float(args.get("decay", 0.5)),
+            )
+        return {
+            "results": [
+                {
+                    "memory_id": r.memory.id,
+                    "activation_score": round(r.activation_score, 4),
+                    "steps_from_seed": r.steps_from_seed,
+                    "domain": r.memory.experience.domain,
+                    "content": r.memory.experience.content[:120],
+                    "path": r.path,
+                }
+                for r in results
+            ],
+            "total": len(results),
+        }
+
+    def _handle_association_stats(self, args: dict[str, Any]) -> dict[str, Any]:
+        stats = self.emms.association_stats()
+        return {
+            "total_nodes": stats.total_nodes,
+            "total_edges": stats.total_edges,
+            "mean_degree": round(stats.mean_degree, 3),
+            "mean_edge_weight": round(stats.mean_edge_weight, 4),
+            "most_connected_id": stats.most_connected_id,
+            "edge_type_counts": stats.edge_type_counts,
+            "summary": stats.summary(),
+        }
+
     def _handle_bridge_summary(self, args: dict[str, Any]) -> dict[str, Any]:
         # Capture current state without closing
         record = self.emms.capture_session_bridge(
@@ -1458,4 +1621,10 @@ class EMCPServer:
         "emms_inject_bridge": _handle_inject_bridge,
         "emms_anneal": _handle_anneal,
         "emms_bridge_summary": _handle_bridge_summary,
+        # v0.12.0 tools
+        "emms_build_association_graph": _handle_build_association_graph,
+        "emms_spreading_activation": _handle_spreading_activation,
+        "emms_discover_insights": _handle_discover_insights,
+        "emms_associative_retrieve": _handle_associative_retrieve,
+        "emms_association_stats": _handle_association_stats,
     }

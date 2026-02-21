@@ -1,5 +1,21 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.12.0: The Associative Mind
+- AssociationGraph: explicit memory-to-memory graph with four auto-detected edge types
+  (semantic, temporal, affective, domain) plus manual "explicit" edges; spreading
+  activation finds connected memories; strongest_path() via Dijkstra; stats()
+- InsightEngine: walks cross-domain bridges in the association graph and synthesises
+  new "insight" memories that make the connection explicit; produces InsightReport
+- AssociativeRetriever: retrieve() via spreading activation from seed IDs;
+  retrieve_by_query() auto-selects seeds from text then spreads
+- EMMS facade: build_association_graph, associate, spreading_activation,
+  association_stats, discover_insights, associative_retrieve,
+  associative_retrieve_by_query
+- MCP tools (5 new): emms_build_association_graph, emms_spreading_activation,
+  emms_discover_insights, emms_associative_retrieve, emms_association_stats (47 total)
+- CLI commands (5 new): association-graph, activation, discover-insights,
+  associative-retrieve, association-stats (51 total)
+
 v0.11.0: The Sleep Cycle
 - DreamConsolidator: between-session memory processing — replays important memories,
   strengthens top-k, weakens neglected ones, prunes below threshold, runs dedup and pattern
@@ -184,10 +200,13 @@ from emms.retrieval.affective import AffectiveRetriever, AffectiveResult, Emotio
 from emms.memory.dream import DreamConsolidator, DreamReport, DreamEntry
 from emms.sessions.bridge import SessionBridge, BridgeRecord, BridgeThread
 from emms.memory.annealing import MemoryAnnealer, AnnealingResult
+from emms.memory.association import AssociationGraph, AssociationEdge, ActivationResult, AssociationStats
+from emms.memory.insight import InsightEngine, InsightReport, InsightBridge
+from emms.retrieval.associative import AssociativeRetriever, AssociativeResult
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 __all__ = [
     # Core
     "EMMS",
@@ -305,6 +324,16 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.12.0 additions
+    "AssociationGraph",
+    "AssociationEdge",
+    "ActivationResult",
+    "AssociationStats",
+    "InsightEngine",
+    "InsightReport",
+    "InsightBridge",
+    "AssociativeRetriever",
+    "AssociativeResult",
     # v0.11.0 additions
     "DreamConsolidator",
     "DreamReport",

@@ -28,9 +28,12 @@ from typing import Any, Protocol, Sequence, runtime_checkable
 import numpy as np
 
 from emms.core.models import (
+    CompactResult,
+    ConceptTag,
     Experience,
     MemoryItem,
     MemoryTier,
+    ObsType,
     RetrievalResult,
 )
 from emms.core.embeddings import EmbeddingProvider, cosine_similarity
@@ -227,6 +230,28 @@ class GraphStrategy:
         return overlap / union if union else 0.0
 
 
+class ImportanceStrategy:
+    """LangMem-inspired: weight retrieval by memory importance + strength.
+
+    LangMem states: "Memory relevance is more than just semantic similarity.
+    Recall should combine similarity with importance of the memory, as well
+    as the memory's strength."  This strategy scores on those two dimensions
+    alone so it can be blended into any ensemble.
+    """
+
+    name = "importance"
+
+    def score(
+        self,
+        query: str,
+        item: MemoryItem,
+        context: dict[str, Any],
+    ) -> float:
+        imp = item.experience.importance  # [0, 1]
+        strength = item.memory_strength   # [0, 1], decays over time
+        return imp * 0.6 + strength * 0.4
+
+
 class DomainStrategy:
     """Domain affinity scoring."""
 
@@ -334,11 +359,217 @@ class EnsembleRetriever:
         results: list[RetrievalResult] = []
         for score, item, strategy_scores in scored[:max_results]:
             item.touch()
+            # Build human-readable explanation from top contributing strategies
+            top = sorted(strategy_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+            explanation = " + ".join(f"{k}={v:.2f}" for k, v in top)
             results.append(RetrievalResult(
                 memory=item,
                 score=score,
                 source_tier=item.tier,
                 strategy="ensemble",
+                strategy_scores=strategy_scores,
+                explanation=explanation,
             ))
 
         return results
+
+    def search_compact(
+        self,
+        query: str,
+        items: Sequence[MemoryItem],
+        max_results: int = 20,
+        context: dict[str, Any] | None = None,
+        relevance_threshold: float = 0.3,
+        snippet_length: int = 120,
+        obs_type: ObsType | None = None,
+        concept_tags: list[ConceptTag] | None = None,
+    ) -> list[CompactResult]:
+        """Layer 1 of progressive disclosure: return a compact index of matches.
+
+        Inspired by claude-mem's 3-layer retrieval pattern. Each CompactResult
+        costs ~50-80 tokens — scan many memories cheaply here, then call
+        get_full() only for the IDs you actually need (Layer 3).
+
+        Args:
+            obs_type: If set, only return memories with this observation type.
+            concept_tags: If set, only return memories carrying ALL listed tags.
+            Private experiences (experience.private=True) are never returned.
+        """
+        # filter private, then optionally by obs_type and concept_tags
+        visible: list[MemoryItem] = []
+        for item in items:
+            exp = item.experience
+            if exp.private:
+                continue
+            if obs_type is not None and exp.obs_type != obs_type:
+                continue
+            if concept_tags:
+                item_tags = set(exp.concept_tags)
+                if not all(t in item_tags for t in concept_tags):
+                    continue
+            visible.append(item)
+
+        full_results = self.retrieve(
+            query, visible, max_results=max_results,
+            context=context, relevance_threshold=relevance_threshold,
+        )
+        compact: list[CompactResult] = []
+        for r in full_results:
+            exp = r.memory.experience
+
+            # Prefer title + first fact for compact snippet; fall back to raw content
+            if exp.title:
+                detail = exp.facts[0] if exp.facts else exp.content[:80]
+                snippet = f"{exp.title} | {detail}"
+                if len(snippet) > snippet_length + 40:
+                    snippet = snippet[:snippet_length + 37] + "…"
+            else:
+                snippet = exp.content[:snippet_length]
+                if len(exp.content) > snippet_length:
+                    snippet += "…"
+
+            # Approximate token cost (words * 1.3 accounts for subword tokens)
+            token_estimate = int(len(exp.content.split()) * 1.3)
+
+            compact.append(CompactResult(
+                id=r.memory.id,
+                snippet=snippet,
+                domain=exp.domain,
+                score=round(r.score, 3),
+                tier=r.source_tier,
+                session_id=exp.session_id,
+                timestamp=exp.timestamp,
+                obs_type=exp.obs_type,
+                concept_tags=list(exp.concept_tags),
+                token_estimate=token_estimate,
+            ))
+        return compact
+
+    def get_full(
+        self,
+        ids: list[str],
+        items: Sequence[MemoryItem],
+    ) -> list[MemoryItem]:
+        """Layer 3 of progressive disclosure: fetch full MemoryItems by ID.
+
+        Use after search_compact() to retrieve only the memories you need.
+        Private memories are excluded regardless of ID.
+        """
+        id_set = set(ids)
+        return [
+            item for item in items
+            if item.id in id_set and not item.experience.private
+        ]
+
+    # ------------------------------------------------------------------
+    # Factory presets
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_balanced(
+        cls,
+        embedder: EmbeddingProvider | None = None,
+    ) -> "EnsembleRetriever":
+        """Create a retriever with claude-mem's recommended weighting + LangMem importance.
+
+        Weights:
+            60% — SemanticStrategy    (meaning-based, highest signal)
+            20% — TemporalStrategy    (recency + access frequency)
+            10% — ImportanceStrategy  (LangMem: importance × memory_strength)
+            10% — DomainStrategy      (subject-area affinity)
+        """
+        retriever = cls()
+        retriever.add_strategy(SemanticStrategy(embedder=embedder), weight=0.60)
+        retriever.add_strategy(TemporalStrategy(), weight=0.20)
+        retriever.add_strategy(ImportanceStrategy(), weight=0.10)
+        retriever.add_strategy(DomainStrategy(), weight=0.10)
+        return retriever
+
+    @classmethod
+    def from_identity(
+        cls,
+        embedder: EmbeddingProvider | None = None,
+    ) -> "EnsembleRetriever":
+        """Create a retriever tuned for identity/consciousness workloads.
+
+        Weights:
+            30% — SemanticStrategy    (content similarity)
+            20% — TemporalStrategy    (narrative arc)
+            15% — ImportanceStrategy  (LangMem: importance × strength)
+            15% — EmotionalStrategy   (emotionally salient memories)
+            10% — GraphStrategy       (entity/relationship coherence)
+            10% — DomainStrategy      (domain consistency)
+        """
+        retriever = cls()
+        retriever.add_strategy(SemanticStrategy(embedder=embedder), weight=0.30)
+        retriever.add_strategy(TemporalStrategy(), weight=0.20)
+        retriever.add_strategy(ImportanceStrategy(), weight=0.15)
+        retriever.add_strategy(EmotionalStrategy(), weight=0.15)
+        retriever.add_strategy(GraphStrategy(), weight=0.10)
+        retriever.add_strategy(DomainStrategy(), weight=0.10)
+        return retriever
+
+
+# ---------------------------------------------------------------------------
+# ChromaSemanticStrategy — semantic retrieval via ChromaDB (optional)
+# ---------------------------------------------------------------------------
+
+try:
+    from emms.storage.chroma import ChromaStore, _HAS_CHROMA  # type: ignore[attr-defined]
+except ImportError:
+    _HAS_CHROMA = False
+    ChromaStore = None  # type: ignore[assignment,misc]
+
+
+class ChromaSemanticStrategy:
+    """SemanticStrategy backed by ChromaDB for high-fidelity vector search.
+
+    Requires: pip install chromadb
+
+    This strategy uses ChromaStore's HNSW index instead of the in-process
+    VectorIndex, giving much better recall on large memory stores (>10k items).
+    Falls back to lexical overlap if chromadb is not installed.
+
+    Usage::
+
+        store = ChromaStore(embedder=HashEmbedder(), persist_directory="~/.emms/chroma")
+        retriever = EnsembleRetriever.from_balanced(embedder=HashEmbedder())
+        # Replace the semantic strategy:
+        retriever.strategies[0] = (ChromaSemanticStrategy(store), 0.70)
+    """
+
+    name = "chroma_semantic"
+
+    def __init__(self, chroma_store: "ChromaStore | None" = None):
+        if not _HAS_CHROMA:
+            logger.warning(
+                "chromadb not installed — ChromaSemanticStrategy falls back to "
+                "lexical overlap. Run: pip install chromadb"
+            )
+        self._store = chroma_store
+        self._query_cache: dict[str, list[dict]] = {}
+
+    def score(
+        self,
+        query: str,
+        item: MemoryItem,
+        context: dict[str, Any],
+    ) -> float:
+        if self._store is None or not _HAS_CHROMA:
+            # lexical fallback
+            qw = set(query.lower().split())
+            cw = set(item.experience.content.lower().split())
+            inter = len(qw & cw)
+            union = len(qw | cw)
+            return inter / union if union else 0.0
+
+        # Batch query once per unique query string per retrieve() call
+        chroma_results = context.get("_chroma_results")
+        if chroma_results is None:
+            chroma_results = {
+                r["id"]: r["score"]
+                for r in self._store.query(query, n_results=200)
+            }
+            context["_chroma_results"] = chroma_results
+
+        return chroma_results.get(item.experience.id, 0.0)

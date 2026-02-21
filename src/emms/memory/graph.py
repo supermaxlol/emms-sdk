@@ -11,10 +11,12 @@ NetworkX optional for path queries.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -333,6 +335,177 @@ class GraphMemory:
 
         return {"nodes": nodes, "edges": edges}
 
+    # ── Persistence ────────────────────────────────────────────────────
+
+    def save_state(self, path: Path | str) -> None:
+        """Serialize graph state (entities + relationships) to JSON."""
+        state = {
+            "version": "0.5.1",
+            "saved_at": time.time(),
+            "entities": {k: v.model_dump() for k, v in self.entities.items()},
+            "relationships": [r.model_dump() for r in self.relationships],
+        }
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, default=str), encoding="utf-8")
+        logger.info(
+            "Graph state saved to %s (%d entities, %d relationships)",
+            path, len(self.entities), len(self.relationships),
+        )
+
+    def load_state(self, path: Path | str) -> None:
+        """Restore graph state from JSON."""
+        path = Path(path)
+        if not path.exists():
+            logger.warning("No graph state file at %s", path)
+            return
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+
+        self.entities = {
+            k: Entity(**v) for k, v in data.get("entities", {}).items()
+        }
+        self.relationships = [
+            Relationship(**r) for r in data.get("relationships", [])
+        ]
+
+        # Rebuild adjacency list and relationship index
+        self._adj.clear()
+        self._rel_index.clear()
+        for rel in self.relationships:
+            src, tgt = rel.source.lower(), rel.target.lower()
+            self._adj[src].add(tgt)
+            self._adj[tgt].add(src)
+            self._rel_index[(src, tgt)] = rel
+
+        logger.info(
+            "Graph state loaded from %s (%d entities, %d relationships)",
+            path, len(self.entities), len(self.relationships),
+        )
+
+    # ── Visualization export ────────────────────────────────────────────
+
+    def to_dot(
+        self,
+        title: str = "EMMS Knowledge Graph",
+        max_nodes: int = 100,
+        min_importance: float = 0.0,
+        highlight: list[str] | None = None,
+    ) -> str:
+        """Export the graph as a Graphviz DOT string.
+
+        Args:
+            title: Graph title (used as label).
+            max_nodes: Maximum number of entity nodes to include.
+            min_importance: Only include entities with importance ≥ this value.
+            highlight: List of entity names to colour red in the graph.
+
+        Returns:
+            A DOT-language string renderable by Graphviz.
+        """
+        highlighted = {n.lower() for n in (highlight or [])}
+
+        # Select nodes (sorted by importance, capped at max_nodes)
+        sorted_entities = sorted(
+            self.entities.values(),
+            key=lambda e: e.importance,
+            reverse=True,
+        )
+        selected = [
+            e for e in sorted_entities
+            if e.importance >= min_importance
+        ][:max_nodes]
+        selected_keys = {e.name.lower() for e in selected}
+
+        lines: list[str] = [
+            'digraph G {',
+            f'    label="{_dot_escape(title)}";',
+            '    rankdir=LR;',
+            '    node [shape=box, style=filled, fillcolor="#e8f4fd", fontsize=10];',
+            '    edge [fontsize=8];',
+            '',
+        ]
+
+        # Nodes
+        for entity in selected:
+            key = entity.name.lower()
+            label = f"{entity.name}\\n({entity.entity_type}, ment={entity.mentions})"
+            color = '"#ff6b6b"' if key in highlighted else '"#e8f4fd"'
+            lines.append(
+                f'    "{_dot_escape(entity.name)}" [label="{_dot_escape(label)}", fillcolor={color}];'
+            )
+
+        lines.append("")
+
+        # Edges (only between selected nodes)
+        for rel in self.relationships:
+            src_key = rel.source.lower()
+            tgt_key = rel.target.lower()
+            if src_key in selected_keys and tgt_key in selected_keys:
+                label = rel.relation_type.replace("_", " ")
+                alpha = max(0, min(255, int(rel.strength * 255)))
+                lines.append(
+                    f'    "{_dot_escape(rel.source)}" -> "{_dot_escape(rel.target)}"'
+                    f' [label="{_dot_escape(label)}", penwidth={max(0.5, rel.strength * 2):.1f}];'
+                )
+
+        lines.append("}")
+        return "\n".join(lines)
+
+    def to_d3(
+        self,
+        max_nodes: int = 200,
+        min_importance: float = 0.0,
+    ) -> dict[str, Any]:
+        """Export the graph as a D3.js force-graph JSON dict.
+
+        Returns a dict with ``nodes`` and ``links`` arrays suitable for
+        ``d3.forceSimulation()``.
+
+        Args:
+            max_nodes: Maximum number of entity nodes to include.
+            min_importance: Only include entities with importance ≥ this value.
+
+        Returns:
+            Dict with ``nodes: [{id, name, type, importance, mentions}]``
+            and ``links: [{source, target, type, strength}]``.
+        """
+        sorted_entities = sorted(
+            self.entities.values(),
+            key=lambda e: e.importance,
+            reverse=True,
+        )
+        selected = [
+            e for e in sorted_entities
+            if e.importance >= min_importance
+        ][:max_nodes]
+        selected_keys = {e.name.lower() for e in selected}
+
+        nodes = [
+            {
+                "id": e.name.lower(),
+                "name": e.name,
+                "type": e.entity_type,
+                "importance": round(e.importance, 3),
+                "mentions": e.mentions,
+            }
+            for e in selected
+        ]
+
+        links = [
+            {
+                "source": rel.source.lower(),
+                "target": rel.target.lower(),
+                "type": rel.relation_type,
+                "strength": round(rel.strength, 3),
+            }
+            for rel in self.relationships
+            if rel.source.lower() in selected_keys
+            and rel.target.lower() in selected_keys
+        ]
+
+        return {"nodes": nodes, "links": links}
+
     # ── Stats ──────────────────────────────────────────────────────────
 
     @property
@@ -394,3 +567,12 @@ class GraphMemory:
                     queue.append((neighbor, path + [neighbor]))
 
         return []
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _dot_escape(s: str) -> str:
+    """Escape a string for use in a DOT label or node name."""
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")

@@ -2005,3 +2005,215 @@ class EMMS:
             emotional_stabilization_rate=emotional_stabilization_rate,
         )
         return annealer.anneal(last_session_at=last_session_at)
+
+    # ------------------------------------------------------------------
+    # AssociationGraph + InsightEngine + AssociativeRetriever (v0.12.0)
+    # ------------------------------------------------------------------
+
+    def build_association_graph(
+        self,
+        semantic_threshold: float = 0.5,
+        temporal_window: float = 300.0,
+        affective_tolerance: float = 0.3,
+    ) -> "Any":
+        """Build an association graph over all stored memories.
+
+        Creates (or replaces) the shared :class:`AssociationGraph` on this
+        EMMS instance, runs ``auto_associate()`` over every stored memory,
+        and returns summary statistics.
+
+        Args:
+            semantic_threshold:  Minimum cosine similarity for a semantic edge
+                (default 0.5).
+            temporal_window:     Max seconds between items for a temporal edge
+                (default 300 = 5 min).
+            affective_tolerance: Max |valence_a − valence_b| for affective edge
+                (default 0.3).
+
+        Returns:
+            :class:`AssociationStats` for the built graph.
+        """
+        from emms.memory.association import AssociationGraph
+        self._association_graph = AssociationGraph(
+            memory=self.memory,
+            semantic_threshold=semantic_threshold,
+            temporal_window=temporal_window,
+            affective_tolerance=affective_tolerance,
+        )
+        self._association_graph.auto_associate()
+        return self._association_graph.stats()
+
+    def associate(
+        self,
+        id_a: str,
+        id_b: str,
+        edge_type: str = "explicit",
+        weight: float = 0.8,
+    ) -> "Any":
+        """Manually add a bidirectional association between two memories.
+
+        Ensures the shared graph exists (building it if needed) then adds
+        the explicit edge.
+
+        Args:
+            id_a:      Source memory ID.
+            id_b:      Target memory ID.
+            edge_type: Edge type label (default "explicit").
+            weight:    Edge weight 0–1 (default 0.8).
+
+        Returns:
+            :class:`AssociationEdge` (A→B direction).
+        """
+        from emms.memory.association import AssociationGraph
+        if not hasattr(self, "_association_graph"):
+            self._association_graph = AssociationGraph(memory=self.memory)
+            self._association_graph.auto_associate()
+        return self._association_graph.associate(id_a, id_b, edge_type=edge_type, weight=weight)
+
+    def spreading_activation(
+        self,
+        seed_ids: list[str],
+        decay: float = 0.5,
+        steps: int = 3,
+    ) -> "Any":
+        """Run spreading activation from seed memory IDs on the association graph.
+
+        Builds the graph lazily if it does not exist yet.
+
+        Args:
+            seed_ids: List of memory IDs to initialise activation from.
+            decay:    Decay factor per hop (default 0.5).
+            steps:    Maximum hop depth (default 3).
+
+        Returns:
+            List of :class:`ActivationResult` sorted by activation descending.
+        """
+        from emms.memory.association import AssociationGraph
+        if not hasattr(self, "_association_graph"):
+            self._association_graph = AssociationGraph(memory=self.memory)
+            self._association_graph.auto_associate()
+        return self._association_graph.spreading_activation(
+            seed_ids, decay=decay, steps=steps
+        )
+
+    def association_stats(self) -> "Any":
+        """Return statistics for the current association graph.
+
+        Builds the graph lazily if it does not exist yet.
+
+        Returns:
+            :class:`AssociationStats`.
+        """
+        from emms.memory.association import AssociationGraph
+        if not hasattr(self, "_association_graph"):
+            self._association_graph = AssociationGraph(memory=self.memory)
+            self._association_graph.auto_associate()
+        return self._association_graph.stats()
+
+    def discover_insights(
+        self,
+        session_id: str | None = None,
+        max_insights: int = 8,
+        min_bridge_weight: float = 0.45,
+        rebuild_graph: bool = True,
+    ) -> "Any":
+        """Find cross-domain memory bridges and generate insight memories.
+
+        Uses the shared :class:`AssociationGraph` (rebuilding if requested)
+        to find pairs of memories from different domains that are strongly
+        connected, then synthesises and stores an insight memory for each.
+
+        Args:
+            session_id:        Label attached to the report.
+            max_insights:      Maximum insight memories to generate (default 8).
+            min_bridge_weight: Minimum edge weight to qualify as a bridge
+                (default 0.45).
+            rebuild_graph:     Rebuild the association graph before searching
+                (default True).
+
+        Returns:
+            :class:`InsightReport` with bridges found and new memory IDs.
+        """
+        from emms.memory.association import AssociationGraph
+        from emms.memory.insight import InsightEngine
+        if not hasattr(self, "_association_graph"):
+            self._association_graph = AssociationGraph(memory=self.memory)
+        engine = InsightEngine(
+            memory=self.memory,
+            association_graph=self._association_graph,
+            max_insights=max_insights,
+            min_bridge_weight=min_bridge_weight,
+        )
+        return engine.discover(session_id=session_id, rebuild_graph=rebuild_graph)
+
+    def associative_retrieve(
+        self,
+        seed_ids: list[str],
+        max_results: int = 10,
+        steps: int = 3,
+        decay: float = 0.5,
+    ) -> "Any":
+        """Retrieve memories via spreading activation from seed memory IDs.
+
+        Args:
+            seed_ids:    Memory IDs to initialise activation from.
+            max_results: Maximum results (default 10).
+            steps:       Hop depth (default 3).
+            decay:       Activation decay per hop (default 0.5).
+
+        Returns:
+            List of :class:`AssociativeResult` sorted by activation descending.
+        """
+        from emms.memory.association import AssociationGraph
+        from emms.retrieval.associative import AssociativeRetriever
+        if not hasattr(self, "_association_graph"):
+            self._association_graph = AssociationGraph(memory=self.memory)
+            self._association_graph.auto_associate()
+        retriever = AssociativeRetriever(
+            memory=self.memory,
+            association_graph=self._association_graph,
+        )
+        return retriever.retrieve(seed_ids, max_results=max_results, steps=steps, decay=decay)
+
+    def associative_retrieve_by_query(
+        self,
+        query: str,
+        seed_count: int = 3,
+        max_results: int = 10,
+        steps: int = 3,
+        decay: float = 0.5,
+        rebuild_graph: bool = False,
+    ) -> "Any":
+        """Retrieve memories associatively starting from a text query.
+
+        Finds seed memories matching the query via token overlap, then spreads
+        activation through the association graph to surface connected memories.
+
+        Args:
+            query:         Text query to select seed memories.
+            seed_count:    Number of seed memories (default 3).
+            max_results:   Maximum results (default 10).
+            steps:         Hop depth (default 3).
+            decay:         Activation decay per hop (default 0.5).
+            rebuild_graph: Rebuild the association graph before retrieval.
+
+        Returns:
+            List of :class:`AssociativeResult` sorted by activation descending.
+        """
+        from emms.memory.association import AssociationGraph
+        from emms.retrieval.associative import AssociativeRetriever
+        if not hasattr(self, "_association_graph"):
+            self._association_graph = AssociationGraph(memory=self.memory)
+            self._association_graph.auto_associate()
+        retriever = AssociativeRetriever(
+            memory=self.memory,
+            association_graph=self._association_graph,
+        )
+        return retriever.retrieve_by_query(
+            query,
+            seed_count=seed_count,
+            max_results=max_results,
+            steps=steps,
+            decay=decay,
+            rebuild_graph=rebuild_graph,
+        )

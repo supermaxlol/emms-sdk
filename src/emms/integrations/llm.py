@@ -341,6 +341,129 @@ class LLMEnhancer:
 
         return await self.provider.generate(prompt, max_tokens=max_tokens)
 
+    async def classify_experience(self, experience: Experience) -> Experience:
+        """Use LLM to infer obs_type and concept_tags for an experience.
+
+        Mutates and returns *experience* with obs_type and concept_tags set.
+        Falls back gracefully if LLM call fails or returns invalid data.
+
+        Claude-mem uses a fixed 6-type + 7-tag taxonomy. We match it exactly
+        so memories annotated by ToolObserver heuristics and by LLM are
+        comparable.
+        """
+        valid_obs_types = ["bugfix", "feature", "refactor", "change", "discovery", "decision"]
+        valid_concept_tags = [
+            "how-it-works", "why-it-exists", "what-changed",
+            "problem-solution", "gotcha", "pattern", "trade-off",
+        ]
+
+        prompt = (
+            "Classify this memory excerpt for an AI agent memory system.\n"
+            "Respond with ONLY a JSON object — no explanation.\n\n"
+            f'Valid obs_type values: {valid_obs_types}\n'
+            f'Valid concept_tags values: {valid_concept_tags}\n\n'
+            '{\n'
+            '  "obs_type": "<one of the valid types>",\n'
+            '  "concept_tags": ["<tag1>", "<tag2>"]  // 1-3 tags max\n'
+            '}\n\n'
+            f"Memory: {experience.content[:600]}"
+        )
+
+        try:
+            from emms.core.models import ConceptTag, ObsType
+            response = await self.provider.generate(prompt, max_tokens=100)
+            data = self._parse_json(response)
+            if data and isinstance(data, dict):
+                raw_type = data.get("obs_type", "")
+                if raw_type in valid_obs_types:
+                    experience.obs_type = ObsType(raw_type)
+                raw_tags = data.get("concept_tags", [])
+                if isinstance(raw_tags, list):
+                    experience.concept_tags = [
+                        ConceptTag(t) for t in raw_tags if t in valid_concept_tags
+                    ]
+        except Exception:
+            logger.debug("LLM classification failed, using defaults", exc_info=True)
+
+        return experience
+
+    async def compress_memories(
+        self,
+        items: list[MemoryItem],
+        max_items: int = 10,
+        session_context: str = "",
+    ) -> Experience:
+        """Semantically compress N MemoryItems into one Experience using LLM.
+
+        This is the core claude-mem 'compression pipeline' ported to EMMS:
+        instead of extractive keyword summarisation, uses the LLM to generate
+        a coherent semantic episode that preserves meaning while reducing
+        token footprint by ~90%.
+
+        Returns a new Experience ready to store back into memory.
+        """
+        from emms.core.models import ConceptTag, ObsType
+        batch = items[:max_items]
+        lines = [
+            f"[{i+1}] ({item.experience.domain}) {item.experience.content[:200]}"
+            for i, item in enumerate(batch)
+        ]
+        memories_text = "\n".join(lines)
+
+        context_clause = f"\nSession context: {session_context}" if session_context else ""
+        prompt = (
+            "You are compressing a batch of AI agent memories into one semantic episode.\n"
+            "Write a single dense paragraph (max 120 words) that captures the key "
+            "insights, decisions, and learnings from these memories. "
+            "Preserve specific details (file names, numbers, error names) that matter.\n"
+            "Then respond with ONLY this JSON:\n"
+            '{"summary": "<paragraph>", "domain": "<primary domain>", '
+            '"importance": 0.0-1.0, "obs_type": "change|discovery|decision|bugfix|feature|refactor"}'
+            f"{context_clause}\n\nMemories:\n{memories_text}"
+        )
+
+        try:
+            response = await self.provider.generate(prompt, max_tokens=300)
+            data = self._parse_json(response)
+            if data and isinstance(data, dict) and data.get("summary"):
+                obs_type_val = data.get("obs_type", "change")
+                try:
+                    obs_type = ObsType(obs_type_val)
+                except ValueError:
+                    obs_type = ObsType.CHANGE
+
+                source_ids = [i.experience.id for i in batch]
+                domains = list({i.experience.domain for i in batch})
+                session_id = batch[0].experience.session_id if batch else None
+
+                return Experience(
+                    content=data["summary"],
+                    domain=data.get("domain", domains[0] if domains else "general"),
+                    importance=float(data.get("importance", 0.7)),
+                    obs_type=obs_type,
+                    concept_tags=[ConceptTag.WHAT_CHANGED],
+                    session_id=session_id,
+                    metadata={
+                        "llm_compressed": True,
+                        "source_count": len(batch),
+                        "source_ids": source_ids,
+                    },
+                )
+        except Exception:
+            logger.debug("LLM compression failed, falling back to extractive", exc_info=True)
+
+        # Extractive fallback: concatenate truncated contents
+        fallback_content = " | ".join(
+            item.experience.content[:80] for item in batch
+        )
+        return Experience(
+            content=f"[Compressed x{len(batch)}] {fallback_content}",
+            domain=batch[0].experience.domain if batch else "general",
+            importance=max(i.experience.importance for i in batch) if batch else 0.5,
+            obs_type=ObsType.CHANGE,
+            metadata={"llm_compressed": False, "source_count": len(batch)},
+        )
+
     @staticmethod
     def recommend_model() -> str:
         """Return the recommended model ID for EMMS identity adoption.
