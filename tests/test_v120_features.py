@@ -597,7 +597,7 @@ class TestEMMSAssociativeRetrieveFacade:
 class TestMCPv120Tools:
     def test_mcp_tool_count(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
-        assert len(_TOOL_DEFINITIONS) == 87
+        assert len(_TOOL_DEFINITIONS) == 92
 
     def test_mcp_has_build_association_graph(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
@@ -675,7 +675,7 @@ class TestMCPv120Tools:
 class TestV120Exports:
     def test_version(self):
         import emms
-        assert emms.__version__ == "0.20.0"
+        assert emms.__version__ == "0.21.0"
 
     def test_export_association_graph(self):
         from emms import AssociationGraph

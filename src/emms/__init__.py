@@ -1,5 +1,39 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.21.0: The Social Mind
+- PerspectiveTaker: Theory of Mind — extracts mental models of other agents from
+  memory content; scans for belief/communication verbs (said, thinks, believes,
+  wants, expects, argues, claims, suggests, reports, needs, hopes, fears, knows,
+  decided, prefers, stated, noted, agreed, denied); token before verb = agent name;
+  tokens after = attributed statement; AgentModel with mentions, statements,
+  mean_valence, domains; PerspectiveReport sorted by mentions; take_perspective
+  (name lookup); all_agents(n); biological analogue: Theory of Mind (Premack &
+  Woodruff 1978), TPJ in belief representation (Saxe & Kanwisher 2003), mPFC
+  self-other distinction (Mitchell 2009); EMMS façades: build_perspective_models,
+  agent_model, all_agents
+- TrustLedger: source credibility scoring per domain; trust = mean_importance × 0.4
+  + valence_stability × 0.4 + count_score × 0.2; valence_stability = 1 − std(valences)
+  clamped 0..1; count_score = min(1.0, count/10); TrustScore with source, trust,
+  memory_count, mean_importance, valence_stability; TrustReport sorted by trust;
+  trust_of returns 0.5 neutral if unknown; most_trusted(n) / least_trusted(n);
+  biological analogue: source monitoring (Johnson et al. 1993), vmPFC source value
+  (Behrens et al. 2008), Bayesian trust updating (Fogg 2003); EMMS façades:
+  compute_trust, trust_of, most_trusted
+- NormExtractor: behavioural norm extraction from memory; prescriptive keywords
+  (should, must, ought, always, expected, appropriate, acceptable, required,
+  standard, recommended); prohibitive keywords (never, forbidden, inappropriate,
+  unacceptable, prohibited, avoid); first meaningful token after keyword = subject;
+  confidence = freq_ratio × 0.6 + mean_importance × 0.4; SocialNorm IDs prefixed
+  "norm_"; NormReport with prescriptive_count + prohibitive_count; norms_for_domain
+  (domain filter); check_norm (Jaccard overlap); biological analogue: social norm
+  learning (Fehr & Gächter 2002), ACC norm violation detection (Berns et al. 2012),
+  social convention learning (Tomasello 1999); EMMS façades: extract_norms,
+  norms_for_domain, check_norm
+- MCP tools (5 new): emms_build_perspectives, emms_agent_model, emms_compute_trust,
+  emms_extract_norms, emms_check_norm (92 total)
+- CLI commands (5 new): build-perspectives, agent-model, compute-trust,
+  extract-norms, check-norm (96 total)
+
 v0.20.0: The Reasoning Mind
 - CausalMapper: directed causal graph extraction from memory content; scans for
   relational keywords (causes, enables, produces, prevents, reduces, increases,
@@ -453,10 +487,13 @@ from emms.memory.self_model import SelfModel, Belief, SelfModelReport
 from emms.memory.causal import CausalMapper, CausalEdge, CausalPath, CausalReport
 from emms.memory.counterfactual import CounterfactualEngine, Counterfactual, CounterfactualReport
 from emms.memory.skills import SkillDistiller, DistilledSkill, SkillReport
+from emms.memory.perspective import PerspectiveTaker, AgentModel, PerspectiveReport
+from emms.memory.trust import TrustLedger, TrustScore, TrustReport
+from emms.memory.norms import NormExtractor, SocialNorm, NormReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.20.0"
+__version__ = "0.21.0"
 __all__ = [
     # Core
     "EMMS",
@@ -574,6 +611,16 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.21.0 additions
+    "PerspectiveTaker",
+    "AgentModel",
+    "PerspectiveReport",
+    "TrustLedger",
+    "TrustScore",
+    "TrustReport",
+    "NormExtractor",
+    "SocialNorm",
+    "NormReport",
     # v0.20.0 additions
     "CausalMapper",
     "CausalEdge",

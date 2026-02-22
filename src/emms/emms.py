@@ -3394,3 +3394,132 @@ class EMMS:
             :class:`DistilledSkill` with highest overlap, or ``None``.
         """
         return self._get_skill_distiller().best_skill(goal_description)
+
+    # ------------------------------------------------------------------
+    # v0.21.0 — PerspectiveTaker
+    # ------------------------------------------------------------------
+
+    def _get_perspective_taker(self) -> "Any":
+        if not hasattr(self, "_perspective_taker"):
+            from emms.memory.perspective import PerspectiveTaker
+            self._perspective_taker = PerspectiveTaker(memory=self.memory)
+        return self._perspective_taker
+
+    def build_perspective_models(self, domain: "Optional[str]" = None) -> "Any":
+        """Scan memories and build Theory-of-Mind models of other agents.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`PerspectiveReport` with agent models sorted by mentions.
+        """
+        return self._get_perspective_taker().build(domain=domain)
+
+    def agent_model(self, agent_name: str) -> "Any":
+        """Return the stored perspective model for a named agent.
+
+        Args:
+            agent_name: The agent's name (case-insensitive).
+
+        Returns:
+            :class:`AgentModel` or ``None`` if not found.
+        """
+        return self._get_perspective_taker().take_perspective(agent_name)
+
+    def all_agents(self, n: int = 10) -> "Any":
+        """Return the n most-mentioned agents from the perspective model.
+
+        Args:
+            n: Number of agents to return (default 10).
+
+        Returns:
+            List of :class:`AgentModel` sorted by mentions descending.
+        """
+        return self._get_perspective_taker().all_agents(n=n)
+
+    # ------------------------------------------------------------------
+    # v0.21.0 — TrustLedger
+    # ------------------------------------------------------------------
+
+    def _get_trust_ledger(self) -> "Any":
+        if not hasattr(self, "_trust_ledger"):
+            from emms.memory.trust import TrustLedger
+            self._trust_ledger = TrustLedger(memory=self.memory)
+        return self._trust_ledger
+
+    def compute_trust(self, domain: "Optional[str]" = None) -> "Any":
+        """Compute credibility scores for all information sources in memory.
+
+        Args:
+            domain: If provided, compute trust only for this source domain.
+
+        Returns:
+            :class:`TrustReport` with scores sorted by trust descending.
+        """
+        return self._get_trust_ledger().compute_trust(domain=domain)
+
+    def trust_of(self, source: str) -> float:
+        """Return the trust score for a named source.
+
+        Args:
+            source: Domain name of the source.
+
+        Returns:
+            Trust score 0..1, or 0.5 (neutral) if source is unknown.
+        """
+        return self._get_trust_ledger().trust_of(source)
+
+    def most_trusted(self, n: int = 5) -> "Any":
+        """Return the n most trustworthy information sources.
+
+        Args:
+            n: Number of sources to return (default 5).
+
+        Returns:
+            List of :class:`TrustScore` sorted by trust descending.
+        """
+        return self._get_trust_ledger().most_trusted(n=n)
+
+    # ------------------------------------------------------------------
+    # v0.21.0 — NormExtractor
+    # ------------------------------------------------------------------
+
+    def _get_norm_extractor(self) -> "Any":
+        if not hasattr(self, "_norm_extractor"):
+            from emms.memory.norms import NormExtractor
+            self._norm_extractor = NormExtractor(memory=self.memory)
+        return self._norm_extractor
+
+    def extract_norms(self, domain: "Optional[str]" = None) -> "Any":
+        """Extract social and behavioural norms from accumulated memories.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`NormReport` with norms sorted by confidence descending.
+        """
+        return self._get_norm_extractor().extract_norms(domain=domain)
+
+    def norms_for_domain(self, domain: str) -> "Any":
+        """Return all extracted norms for a given domain.
+
+        Args:
+            domain: The domain to filter by.
+
+        Returns:
+            List of :class:`SocialNorm` sorted by confidence descending.
+        """
+        return self._get_norm_extractor().norms_for_domain(domain)
+
+    def check_norm(self, behavior: str) -> "Any":
+        """Find norms most relevant to a described behaviour.
+
+        Args:
+            behavior: Natural-language description of the behaviour.
+
+        Returns:
+            List of :class:`SocialNorm` sorted by relevance (up to 5).
+        """
+        return self._get_norm_extractor().check_norm(behavior)

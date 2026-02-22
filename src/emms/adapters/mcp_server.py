@@ -1105,6 +1105,59 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["goal_description"],
         },
     },
+    # v0.21.0 tools
+    {
+        "name": "emms_build_perspectives",
+        "description": "Build Theory-of-Mind agent models from memory, detecting other agents mentioned alongside belief/communication verbs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_agent_model",
+        "description": "Return the stored perspective model (beliefs, statements, valence) for a named agent.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent_name": {"type": "string", "description": "Name of the agent to look up."},
+            },
+            "required": ["agent_name"],
+        },
+    },
+    {
+        "name": "emms_compute_trust",
+        "description": "Compute credibility scores per information source (domain) using importance, valence stability, and memory count.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this source domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_extract_norms",
+        "description": "Extract prescriptive and prohibitive behavioural norms from memory content.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_check_norm",
+        "description": "Find the norms most relevant to a described behaviour using token Jaccard overlap.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "behavior": {"type": "string", "description": "Natural-language description of the behaviour to check."},
+            },
+            "required": ["behavior"],
+        },
+    },
 ]
 
 
@@ -2801,6 +2854,113 @@ class EMCPServer:
             },
         }
 
+    # v0.21.0 handlers
+
+    def _handle_build_perspectives(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        report = self.emms.build_perspective_models(domain=domain)
+        return {
+            "ok": True,
+            "total_agents": report.total_agents,
+            "most_mentioned": report.most_mentioned,
+            "total_memories_scanned": report.total_memories_scanned,
+            "agents": [
+                {
+                    "name": a.name,
+                    "mentions": a.mentions,
+                    "mean_valence": a.mean_valence,
+                    "domains": a.domains,
+                    "statements": a.statements[:3],
+                }
+                for a in report.agents[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_agent_model(self, args: dict[str, Any]) -> dict[str, Any]:
+        agent_name = args.get("agent_name", "")
+        self.emms.build_perspective_models()
+        model = self.emms.agent_model(agent_name)
+        if model is None:
+            return {"ok": True, "found": False, "agent": None}
+        return {
+            "ok": True,
+            "found": True,
+            "agent": {
+                "name": model.name,
+                "mentions": model.mentions,
+                "mean_valence": model.mean_valence,
+                "domains": model.domains,
+                "statements": model.statements[:5],
+            },
+        }
+
+    def _handle_compute_trust(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        report = self.emms.compute_trust(domain=domain)
+        return {
+            "ok": True,
+            "total_sources": report.total_sources,
+            "most_trusted": report.most_trusted,
+            "least_trusted": report.least_trusted,
+            "scores": [
+                {
+                    "source": ts.source,
+                    "trust": ts.trust,
+                    "memory_count": ts.memory_count,
+                    "mean_importance": ts.mean_importance,
+                    "valence_stability": ts.valence_stability,
+                }
+                for ts in report.scores[:10]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_extract_norms(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        report = self.emms.extract_norms(domain=domain)
+        return {
+            "ok": True,
+            "total_norms": report.total_norms,
+            "prescriptive_count": report.prescriptive_count,
+            "prohibitive_count": report.prohibitive_count,
+            "domains_covered": report.domains_covered,
+            "norms": [
+                {
+                    "id": n.id,
+                    "polarity": n.polarity,
+                    "keyword": n.keyword,
+                    "subject": n.subject,
+                    "confidence": n.confidence,
+                    "domain": n.domain,
+                    "content": n.content[:100],
+                }
+                for n in report.norms[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_check_norm(self, args: dict[str, Any]) -> dict[str, Any]:
+        behavior = args.get("behavior", "")
+        self.emms.extract_norms()
+        norms = self.emms.check_norm(behavior)
+        return {
+            "ok": True,
+            "behavior": behavior,
+            "relevant_norms_count": len(norms),
+            "norms": [
+                {
+                    "id": n.id,
+                    "polarity": n.polarity,
+                    "keyword": n.keyword,
+                    "subject": n.subject,
+                    "confidence": n.confidence,
+                    "content": n.content[:100],
+                }
+                for n in norms
+            ],
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -2904,4 +3064,10 @@ class EMCPServer:
         "emms_generate_counterfactuals": _handle_generate_counterfactuals,
         "emms_distill_skills": _handle_distill_skills,
         "emms_best_skill": _handle_best_skill,
+        # v0.21.0 tools
+        "emms_build_perspectives": _handle_build_perspectives,
+        "emms_agent_model": _handle_agent_model,
+        "emms_compute_trust": _handle_compute_trust,
+        "emms_extract_norms": _handle_extract_norms,
+        "emms_check_norm": _handle_check_norm,
     }

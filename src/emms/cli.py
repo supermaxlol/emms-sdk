@@ -1892,6 +1892,114 @@ def cmd_best_skill(args: argparse.Namespace) -> None:
             print(skill.summary())
 
 
+# v0.21.0 commands
+
+
+def cmd_build_perspectives(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    report = agent.build_perspective_models(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_agents": report.total_agents,
+            "most_mentioned": report.most_mentioned,
+            "total_memories_scanned": report.total_memories_scanned,
+            "agents": [
+                {"name": a.name, "mentions": a.mentions,
+                 "mean_valence": a.mean_valence, "domains": a.domains}
+                for a in report.agents[:8]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_agent_model(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.build_perspective_models()
+    model = agent.agent_model(args.agent_name)
+    if getattr(args, "json", False):
+        if model is None:
+            print(json.dumps({"found": False, "agent": None}))
+        else:
+            print(json.dumps({
+                "found": True,
+                "agent": {
+                    "name": model.name, "mentions": model.mentions,
+                    "mean_valence": model.mean_valence, "domains": model.domains,
+                    "statements": model.statements[:5],
+                },
+            }))
+    else:
+        if model is None:
+            print(f"No model found for agent '{args.agent_name}'.")
+        else:
+            print(f"Agent '{model.name}'  mentions={model.mentions}  "
+                  f"valence={model.mean_valence:+.2f}")
+            for stmt in model.statements[:5]:
+                print(f"  said: {stmt}")
+
+
+def cmd_compute_trust(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    report = agent.compute_trust(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_sources": report.total_sources,
+            "most_trusted": report.most_trusted,
+            "least_trusted": report.least_trusted,
+            "scores": [
+                {"source": ts.source, "trust": ts.trust,
+                 "memory_count": ts.memory_count}
+                for ts in report.scores[:10]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_extract_norms(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    report = agent.extract_norms(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_norms": report.total_norms,
+            "prescriptive_count": report.prescriptive_count,
+            "prohibitive_count": report.prohibitive_count,
+            "domains_covered": report.domains_covered,
+            "norms": [
+                {"id": n.id, "polarity": n.polarity, "keyword": n.keyword,
+                 "subject": n.subject, "confidence": n.confidence,
+                 "content": n.content[:80]}
+                for n in report.norms[:8]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_check_norm(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.extract_norms()
+    norms = agent.check_norm(args.behavior)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "behavior": args.behavior,
+            "norms": [
+                {"id": n.id, "polarity": n.polarity, "subject": n.subject,
+                 "confidence": n.confidence, "content": n.content[:80]}
+                for n in norms
+            ],
+        }))
+    else:
+        if not norms:
+            print("No relevant norms found.")
+        for n in norms:
+            print(n.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -2620,6 +2728,38 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Find the best skill for a given goal description.")
     p_bs.add_argument("goal", help="Natural-language goal description.")
     p_bs.set_defaults(func=cmd_best_skill)
+
+    # v0.21.0 commands
+
+    # build-perspectives
+    p_bp = sub.add_parser("build-perspectives",
+                           help="Build Theory-of-Mind agent models from memory.")
+    p_bp.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_bp.set_defaults(func=cmd_build_perspectives)
+
+    # agent-model
+    p_am = sub.add_parser("agent-model",
+                           help="Show the perspective model for a named agent.")
+    p_am.add_argument("agent_name", help="Name of the agent to look up.")
+    p_am.set_defaults(func=cmd_agent_model)
+
+    # compute-trust
+    p_ct = sub.add_parser("compute-trust",
+                           help="Compute credibility scores per information source.")
+    p_ct.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_ct.set_defaults(func=cmd_compute_trust)
+
+    # extract-norms
+    p_en = sub.add_parser("extract-norms",
+                           help="Extract prescriptive and prohibitive norms from memory.")
+    p_en.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_en.set_defaults(func=cmd_extract_norms)
+
+    # check-norm
+    p_cn = sub.add_parser("check-norm",
+                           help="Find norms most relevant to a described behaviour.")
+    p_cn.add_argument("behavior", help="Natural-language behaviour description.")
+    p_cn.set_defaults(func=cmd_check_norm)
 
     return parser
 
