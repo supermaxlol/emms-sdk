@@ -1,5 +1,40 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.19.0: The Integrated Mind
+- EmotionalRegulator: tracks emotional state (valence, arousal, dominant_domain)
+  from the most recent window of memories; cognitive reappraisal for memories with
+  valence < -0.3 — generates alternative growth-oriented framing and shifts valence
+  +0.3; mood-congruent retrieval returns memories closest to current emotional state;
+  emotional_coherence = 1 - std(all_valences); optionally stores reappraisals as
+  "reappraisal" domain memories; EmotionReport with current_state, reappraisals list,
+  mood_congruent_ids, and coherence; biological analogue: process model of emotion
+  regulation (Gross 1998), mood-congruent memory (Bower 1981), amygdala-PFC
+  interaction (Ochsner & Gross 2005); EMMS façades: regulate_emotions,
+  current_emotional_state, mood_retrieve
+- ConceptHierarchy: taxonomic knowledge organisation from memory token co-occurrence;
+  candidates = tokens appearing in ≥ min_frequency memories; top 1/3 by frequency →
+  level-0 roots; remaining tokens assigned to most-frequent co-occurring root →
+  level-1 children; level-2+ by co-occurrence with level-1; abstraction_score =
+  freq/total_items; ancestors(label) root-first; descendants(label) BFS; concept_
+  distance(a, b) BFS hop count; most_abstract/most_specific; HierarchyReport with
+  total_concepts, total_edges, max_depth, domains; biological analogue: semantic
+  network (Collins & Quillian 1969), prototype theory (Rosch 1975), taxonomic
+  organisation (Rogers & McClelland 2004); EMMS façades: build_concept_hierarchy,
+  concept_distance
+- SelfModel: explicit self-representation from recurring memory patterns; beliefs =
+  top token per domain with confidence = freq_ratio * 0.6 + mean_strength * 0.4;
+  capability_profile = domain → min(1, mean_strength * log1p(count) / log1p(5));
+  consistency_score = 1 - std(belief valences) clamped 0..1; core_domains = top-3
+  domains by memory count; SelfModelReport with beliefs, core_domains, dominant_
+  valence, consistency_score, capability_profile; belief IDs prefixed "belief_";
+  biological analogue: self-referential processing in mPFC (Northoff et al. 2006),
+  self-schema (Markus 1977), autobiographical self (Damasio 1999); EMMS façades:
+  update_self_model, self_model_beliefs, capability_profile
+- MCP tools (5 new): emms_regulate_emotions, emms_current_emotion,
+  emms_build_hierarchy, emms_concept_distance, emms_update_self_model (82 total)
+- CLI commands (5 new): regulate-emotions, current-emotion, build-hierarchy,
+  concept-distance, update-self-model (86 total)
+
 v0.18.0: The Predictive Mind
 - PredictiveEngine: forward model generating domain predictions from recurring
   memory patterns; token frequency analysis per domain; confidence proportional
@@ -376,10 +411,13 @@ from emms.memory.analogy import AnalogyEngine, AnalogyMapping, AnalogyRecord, An
 from emms.memory.prediction import PredictiveEngine, Prediction, PredictionReport
 from emms.memory.blending import ConceptBlender, BlendedConcept, BlendReport
 from emms.memory.projection import TemporalProjection, FutureScenario, ProjectionReport
+from emms.memory.emotion import EmotionalRegulator, EmotionalState, ReappraisalResult, EmotionReport
+from emms.memory.hierarchy import ConceptHierarchy, ConceptNode, HierarchyReport
+from emms.memory.self_model import SelfModel, Belief, SelfModelReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.18.0"
+__version__ = "0.19.0"
 __all__ = [
     # Core
     "EMMS",
@@ -497,6 +535,17 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.19.0 additions
+    "EmotionalRegulator",
+    "EmotionalState",
+    "ReappraisalResult",
+    "EmotionReport",
+    "ConceptHierarchy",
+    "ConceptNode",
+    "HierarchyReport",
+    "SelfModel",
+    "Belief",
+    "SelfModelReport",
     # v0.18.0 additions
     "PredictiveEngine",
     "Prediction",

@@ -3174,3 +3174,103 @@ class EMMS:
         engine = TemporalProjection(memory=self.memory, episodic_buffer=episodic)
         engine.project()
         return engine.most_plausible(n=n)
+
+    # ------------------------------------------------------------------
+    # v0.19.0 — The Integrated Mind
+    # ------------------------------------------------------------------
+
+    def _get_emotional_regulator(self) -> "Any":
+        if not hasattr(self, "_emotional_regulator"):
+            from emms.memory.emotion import EmotionalRegulator
+            self._emotional_regulator = EmotionalRegulator(memory=self.memory)
+        return self._emotional_regulator
+
+    def regulate_emotions(self, domain: "Optional[str]" = None) -> "Any":
+        """Assess emotional state and apply cognitive reappraisal.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`EmotionReport` with state, reappraisals, and congruent IDs.
+        """
+        return self._get_emotional_regulator().regulate(domain=domain)
+
+    def current_emotional_state(self) -> "Any":
+        """Return the most recently computed emotional state, or ``None``.
+
+        Returns:
+            :class:`EmotionalState` or ``None`` if not yet computed.
+        """
+        return self._get_emotional_regulator().current_state()
+
+    def mood_retrieve(self, k: int = 8) -> "Any":
+        """Return the k memories most resonant with the current emotional state.
+
+        Args:
+            k: Number of memories to return (default 8).
+
+        Returns:
+            List of memory items sorted by mood-congruence.
+        """
+        return self._get_emotional_regulator().mood_retrieve(k=k)
+
+    def build_concept_hierarchy(self, domain: "Optional[str]" = None) -> "Any":
+        """Build a taxonomic concept hierarchy from memory token statistics.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`HierarchyReport` with concept nodes sorted by level.
+        """
+        from emms.memory.hierarchy import ConceptHierarchy
+        engine = ConceptHierarchy(memory=self.memory)
+        return engine.build(domain=domain)
+
+    def concept_distance(self, label_a: str, label_b: str) -> int:
+        """Compute shortest-path distance between two concepts in the hierarchy.
+
+        Calls :meth:`build_concept_hierarchy` first to refresh the tree.
+
+        Args:
+            label_a: First concept label.
+            label_b: Second concept label.
+
+        Returns:
+            Number of hops, or ``-1`` if no path exists.
+        """
+        from emms.memory.hierarchy import ConceptHierarchy
+        engine = ConceptHierarchy(memory=self.memory)
+        engine.build()
+        return engine.concept_distance(label_a, label_b)
+
+    def _get_self_model(self) -> "Any":
+        if not hasattr(self, "_self_model"):
+            from emms.memory.self_model import SelfModel
+            self._self_model = SelfModel(memory=self.memory)
+        return self._self_model
+
+    def update_self_model(self) -> "Any":
+        """Rebuild the self-model from current memory contents.
+
+        Returns:
+            :class:`SelfModelReport` reflecting current beliefs and capabilities.
+        """
+        return self._get_self_model().update()
+
+    def self_model_beliefs(self) -> "Any":
+        """Return the agent's current belief list.
+
+        Returns:
+            List of :class:`Belief` sorted by confidence descending.
+        """
+        return self._get_self_model().beliefs()
+
+    def capability_profile(self) -> "Any":
+        """Return domain → expertise level mapping (0..1).
+
+        Returns:
+            Dict of domain name to expertise score.
+        """
+        return self._get_self_model().capability_profile()

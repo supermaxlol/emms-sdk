@@ -1002,6 +1002,55 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    # v0.19.0 tools
+    {
+        "name": "emms_regulate_emotions",
+        "description": "Assess the agent's current emotional state and apply cognitive reappraisal to negative memories.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict assessment to this domain (omit for all domains)."},
+            },
+        },
+    },
+    {
+        "name": "emms_current_emotion",
+        "description": "Return the most recently computed emotional state (valence, arousal, dominant_domain).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "emms_build_hierarchy",
+        "description": "Build a taxonomic concept hierarchy from memory token co-occurrences.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict hierarchy to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_concept_distance",
+        "description": "Compute the shortest-path distance between two concepts in the concept hierarchy.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "label_a": {"type": "string", "description": "First concept label."},
+                "label_b": {"type": "string", "description": "Second concept label."},
+            },
+            "required": ["label_a", "label_b"],
+        },
+    },
+    {
+        "name": "emms_update_self_model",
+        "description": "Rebuild the self-model from current memory, returning beliefs, capability profile, and consistency score.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -2508,6 +2557,92 @@ class EMCPServer:
             ],
         }
 
+    # v0.19.0 handlers
+
+    def _handle_regulate_emotions(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.regulate_emotions(domain=args.get("domain"))
+        state = report.current_state
+        return {
+            "ok": True,
+            "valence": state.valence,
+            "arousal": state.arousal,
+            "dominant_domain": state.dominant_domain,
+            "sample_size": state.sample_size,
+            "memories_assessed": report.memories_assessed,
+            "reappraisals": len(report.reappraisals),
+            "emotional_coherence": report.emotional_coherence,
+            "mood_congruent_count": len(report.mood_congruent_ids),
+            "summary": report.summary(),
+        }
+
+    def _handle_current_emotion(self, args: dict[str, Any]) -> dict[str, Any]:
+        state = self.emms.current_emotional_state()
+        if state is None:
+            return {"ok": True, "state": None, "message": "No emotional state computed yet."}
+        return {
+            "ok": True,
+            "valence": state.valence,
+            "arousal": state.arousal,
+            "dominant_domain": state.dominant_domain,
+            "sample_size": state.sample_size,
+        }
+
+    def _handle_build_hierarchy(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.build_concept_hierarchy(domain=args.get("domain"))
+        return {
+            "ok": True,
+            "total_concepts": report.total_concepts,
+            "total_edges": report.total_edges,
+            "max_depth": report.max_depth,
+            "domains": report.domains,
+            "nodes": [
+                {
+                    "label": n.label,
+                    "level": n.level,
+                    "domain": n.domain,
+                    "abstraction_score": n.abstraction_score,
+                    "children": len(n.children_ids),
+                }
+                for n in report.nodes[:20]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_concept_distance(self, args: dict[str, Any]) -> dict[str, Any]:
+        label_a = args.get("label_a", "")
+        label_b = args.get("label_b", "")
+        distance = self.emms.concept_distance(label_a, label_b)
+        return {
+            "ok": True,
+            "label_a": label_a,
+            "label_b": label_b,
+            "distance": distance,
+            "connected": distance >= 0,
+        }
+
+    def _handle_update_self_model(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.update_self_model()
+        return {
+            "ok": True,
+            "total_memories_analyzed": report.total_memories_analyzed,
+            "beliefs_count": len(report.beliefs),
+            "core_domains": report.core_domains,
+            "dominant_valence": report.dominant_valence,
+            "consistency_score": report.consistency_score,
+            "capability_profile": report.capability_profile,
+            "beliefs": [
+                {
+                    "id": b.id,
+                    "domain": b.domain,
+                    "confidence": b.confidence,
+                    "valence": b.valence,
+                    "content": b.content[:100],
+                }
+                for b in report.beliefs[:8]
+            ],
+            "summary": report.summary(),
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -2599,4 +2734,10 @@ class EMCPServer:
         "emms_blend_concepts": _handle_blend_concepts,
         "emms_project_future": _handle_project_future,
         "emms_plausible_futures": _handle_plausible_futures,
+        # v0.19.0 tools
+        "emms_regulate_emotions": _handle_regulate_emotions,
+        "emms_current_emotion": _handle_current_emotion,
+        "emms_build_hierarchy": _handle_build_hierarchy,
+        "emms_concept_distance": _handle_concept_distance,
+        "emms_update_self_model": _handle_update_self_model,
     }

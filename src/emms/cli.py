@@ -1692,6 +1692,100 @@ def cmd_plausible_futures(args: argparse.Namespace) -> None:
             print(s.summary())
 
 
+def cmd_regulate_emotions(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.regulate_emotions(domain=getattr(args, "domain", None) or None)
+    if getattr(args, "json", False):
+        state = report.current_state
+        print(json.dumps({
+            "valence": state.valence,
+            "arousal": state.arousal,
+            "dominant_domain": state.dominant_domain,
+            "memories_assessed": report.memories_assessed,
+            "reappraisals": len(report.reappraisals),
+            "emotional_coherence": report.emotional_coherence,
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_current_emotion(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    state = agent.current_emotional_state()
+    if getattr(args, "json", False):
+        if state is None:
+            print(json.dumps({"state": None}))
+        else:
+            print(json.dumps({
+                "valence": state.valence,
+                "arousal": state.arousal,
+                "dominant_domain": state.dominant_domain,
+                "sample_size": state.sample_size,
+            }))
+    else:
+        if state is None:
+            print("No emotional state computed yet. Run regulate-emotions first.")
+        else:
+            print(state.summary())
+
+
+def cmd_build_hierarchy(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.build_concept_hierarchy(domain=getattr(args, "domain", None) or None)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_concepts": report.total_concepts,
+            "total_edges": report.total_edges,
+            "max_depth": report.max_depth,
+            "domains": report.domains,
+            "nodes": [
+                {"label": n.label, "level": n.level, "domain": n.domain,
+                 "abstraction_score": n.abstraction_score}
+                for n in report.nodes[:20]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_concept_distance(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    distance = agent.concept_distance(args.label_a, args.label_b)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "label_a": args.label_a,
+            "label_b": args.label_b,
+            "distance": distance,
+            "connected": distance >= 0,
+        }))
+    else:
+        if distance < 0:
+            print(f"No path between '{args.label_a}' and '{args.label_b}' in hierarchy.")
+        else:
+            print(f"Distance between '{args.label_a}' and '{args.label_b}': {distance} hop(s)")
+
+
+def cmd_update_self_model(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.update_self_model()
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_memories_analyzed": report.total_memories_analyzed,
+            "beliefs_count": len(report.beliefs),
+            "core_domains": report.core_domains,
+            "dominant_valence": report.dominant_valence,
+            "consistency_score": report.consistency_score,
+            "capability_profile": report.capability_profile,
+            "beliefs": [
+                {"id": b.id, "domain": b.domain, "confidence": b.confidence,
+                 "content": b.content[:80]}
+                for b in report.beliefs[:8]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -2354,6 +2448,37 @@ def build_parser() -> argparse.ArgumentParser:
                             help="Return the most plausible future scenarios generated so far.")
     p_plf.add_argument("--n", type=int, default=3, help="Number of scenarios to return.")
     p_plf.set_defaults(func=cmd_plausible_futures)
+
+    # v0.19.0 commands
+
+    # regulate-emotions
+    p_re = sub.add_parser("regulate-emotions",
+                           help="Assess emotional state and apply cognitive reappraisal.")
+    p_re.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_re.set_defaults(func=cmd_regulate_emotions)
+
+    # current-emotion
+    p_ce = sub.add_parser("current-emotion",
+                           help="Return the most recently computed emotional state.")
+    p_ce.set_defaults(func=cmd_current_emotion)
+
+    # build-hierarchy
+    p_bh = sub.add_parser("build-hierarchy",
+                           help="Build a taxonomic concept hierarchy from memory tokens.")
+    p_bh.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_bh.set_defaults(func=cmd_build_hierarchy)
+
+    # concept-distance
+    p_cd = sub.add_parser("concept-distance",
+                           help="Compute shortest-path distance between two concepts.")
+    p_cd.add_argument("label_a", help="First concept label.")
+    p_cd.add_argument("label_b", help="Second concept label.")
+    p_cd.set_defaults(func=cmd_concept_distance)
+
+    # update-self-model
+    p_usm = sub.add_parser("update-self-model",
+                            help="Rebuild the self-model from current memory contents.")
+    p_usm.set_defaults(func=cmd_update_self_model)
 
     return parser
 

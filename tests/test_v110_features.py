@@ -654,7 +654,7 @@ class TestMCPV110Tools:
         from emms.adapters.mcp_server import EMCPServer
         agent = _make_emms()
         server = EMCPServer(agent)
-        assert len(server.tool_definitions) == 77
+        assert len(server.tool_definitions) == 82
 
 
 # ---------------------------------------------------------------------------
@@ -665,7 +665,7 @@ class TestV110Exports:
 
     def test_version(self):
         import emms
-        assert emms.__version__ == "0.18.0"
+        assert emms.__version__ == "0.19.0"
 
     def test_dream_consolidator_export(self):
         from emms import DreamConsolidator
