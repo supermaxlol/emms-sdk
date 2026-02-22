@@ -1,5 +1,37 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.18.0: The Predictive Mind
+- PredictiveEngine: forward model generating domain predictions from recurring
+  memory patterns; token frequency analysis per domain; confidence proportional
+  to pattern frequency ratio; resolve(prediction_id, outcome) marks confirmed or
+  violated with automatic surprise_score (violated high-confidence = high surprise;
+  confirmed = low surprise); pending_predictions() for unresolved items;
+  surprise_profile() returns domain → mean_surprise; PredictionReport with
+  total/confirmed/violated/pending counts; biological analogue: predictive coding
+  (Rao & Ballard 1999), free energy principle (Friston 2010); EMMS façades:
+  predict, resolve_prediction, pending_predictions
+- ConceptBlender: Fauconnier & Turner conceptual blending of memory pairs; blend
+  strength = shared_token_ratio × coherence where coherence = importance_a ×
+  importance_b × 4; emergent_properties = unique tokens from each side (selective
+  projection into blend space); blend_content prose naming shared + emergent
+  structure; optionally stores blend as "insight" domain memory; blend() pairs
+  across domain matrix; blend_pair(id_a, id_b) for targeted blending; BlendReport
+  with sorted BlendedConcept list; biological analogue: conceptual integration
+  theory (Fauconnier & Turner 2002), creative insight as structural integration
+  (Dijksterhuis & Meurs 2006); EMMS façades: blend_concepts, blend_pair
+- TemporalProjection: episodic future thinking from two paths — memory-based
+  (token frequency + mean strength → plausibility) and episode-based (closed
+  episode outcomes + turn_count → plausibility); FutureScenario with content,
+  domain, horizon_days, plausibility (0..1), emotional_valence, basis ids;
+  most_plausible(n) for top-n retrieval; ProjectionReport with episode/memory
+  counts; biological analogue: episodic future thinking (Atance & O'Neill 2001),
+  mental time travel (Tulving 1985), hippocampal scene construction (Hassabis &
+  Maguire 2007); EMMS façades: project_future, most_plausible_futures
+- MCP tools (5 new): emms_predict, emms_pending_predictions, emms_blend_concepts,
+  emms_project_future, emms_plausible_futures (77 total)
+- CLI commands (5 new): predict, pending-predictions, blend-concepts,
+  project-future, plausible-futures (81 total)
+
 v0.17.0: The Goal-Directed Mind
 - GoalStack: hierarchical goal management with lifecycle tracking; goals have
   priority (0..1), status (pending/active/completed/failed/abandoned), optional
@@ -341,10 +373,13 @@ from emms.memory.decay import MemoryDecay, DecayRecord, DecayReport
 from emms.memory.goals import GoalStack, Goal, GoalReport
 from emms.memory.attention import AttentionFilter, AttentionResult, AttentionReport
 from emms.memory.analogy import AnalogyEngine, AnalogyMapping, AnalogyRecord, AnalogyReport
+from emms.memory.prediction import PredictiveEngine, Prediction, PredictionReport
+from emms.memory.blending import ConceptBlender, BlendedConcept, BlendReport
+from emms.memory.projection import TemporalProjection, FutureScenario, ProjectionReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.17.0"
+__version__ = "0.18.0"
 __all__ = [
     # Core
     "EMMS",
@@ -462,6 +497,16 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.18.0 additions
+    "PredictiveEngine",
+    "Prediction",
+    "PredictionReport",
+    "ConceptBlender",
+    "BlendedConcept",
+    "BlendReport",
+    "TemporalProjection",
+    "FutureScenario",
+    "ProjectionReport",
     # v0.17.0 additions
     "GoalStack",
     "Goal",

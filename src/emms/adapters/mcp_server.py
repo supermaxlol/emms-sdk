@@ -951,6 +951,57 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    # v0.18.0 tools
+    {
+        "name": "emms_predict",
+        "description": "Generate predictions from recurring patterns in the memory store. Returns domain-level predictions with confidence scores.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict predictions to one domain (omit for all domains)."},
+            },
+        },
+    },
+    {
+        "name": "emms_pending_predictions",
+        "description": "List all unresolved predictions sorted by confidence descending.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "emms_blend_concepts",
+        "description": "Blend pairs of memories into novel conceptual syntheses using Fauconnier & Turner conceptual integration theory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain_a": {"type": "string", "description": "Source domain for one side of the blend (omit for all domains)."},
+                "domain_b": {"type": "string", "description": "Source domain for other side of the blend (omit for all domains)."},
+            },
+        },
+    },
+    {
+        "name": "emms_project_future",
+        "description": "Generate plausible future scenarios by extrapolating from memory patterns and past episodes (episodic future thinking).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict projection to one domain (omit for all)."},
+                "horizon_days": {"type": "number", "default": 30.0, "description": "Projection horizon in days (default 30)."},
+            },
+        },
+    },
+    {
+        "name": "emms_plausible_futures",
+        "description": "Return the n most plausible future scenarios from the last projection run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "default": 3, "description": "Number of scenarios to return (default 3)."},
+            },
+        },
+    },
 ]
 
 
@@ -2358,6 +2409,105 @@ class EMCPServer:
             "summary": report.summary(),
         }
 
+    # v0.18.0 handlers
+
+    def _handle_predict(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.predict(domain=args.get("domain"))
+        return {
+            "total_generated": report.total_generated,
+            "confirmed": report.confirmed,
+            "violated": report.violated,
+            "pending": report.pending,
+            "mean_surprise": report.mean_surprise,
+            "predictions": [
+                {
+                    "id": p.id,
+                    "content": p.content[:100],
+                    "domain": p.domain,
+                    "confidence": p.confidence,
+                    "outcome": p.outcome,
+                }
+                for p in report.predictions
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_pending_predictions(self, args: dict[str, Any]) -> dict[str, Any]:
+        preds = self.emms.pending_predictions()
+        return {
+            "count": len(preds),
+            "predictions": [
+                {
+                    "id": p.id,
+                    "content": p.content[:100],
+                    "domain": p.domain,
+                    "confidence": p.confidence,
+                }
+                for p in preds
+            ],
+        }
+
+    def _handle_blend_concepts(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.blend_concepts(
+            domain_a=args.get("domain_a"),
+            domain_b=args.get("domain_b"),
+        )
+        return {
+            "total_pairs_tried": report.total_pairs_tried,
+            "blends_created": report.blends_created,
+            "concepts": [
+                {
+                    "id": c.id,
+                    "source_domains": c.source_domains,
+                    "blend_strength": c.blend_strength,
+                    "emergent_properties": c.emergent_properties[:5],
+                    "blend_content": c.blend_content[:120],
+                }
+                for c in report.concepts
+            ],
+            "duration_seconds": round(report.duration_seconds, 4),
+            "summary": report.summary(),
+        }
+
+    def _handle_project_future(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.project_future(
+            domain=args.get("domain"),
+            horizon_days=float(args.get("horizon_days", 30.0)),
+        )
+        return {
+            "scenarios_generated": report.scenarios_generated,
+            "total_memories_used": report.total_memories_used,
+            "total_episodes_used": report.total_episodes_used,
+            "mean_plausibility": report.mean_plausibility,
+            "scenarios": [
+                {
+                    "id": s.id,
+                    "domain": s.domain,
+                    "plausibility": s.plausibility,
+                    "emotional_valence": s.emotional_valence,
+                    "horizon_days": s.projection_horizon,
+                    "content": s.content[:120],
+                }
+                for s in report.scenarios
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_plausible_futures(self, args: dict[str, Any]) -> dict[str, Any]:
+        scenarios = self.emms.most_plausible_futures(n=int(args.get("n", 3)))
+        return {
+            "count": len(scenarios),
+            "scenarios": [
+                {
+                    "id": s.id,
+                    "domain": s.domain,
+                    "plausibility": s.plausibility,
+                    "content": s.content[:120],
+                }
+                for s in scenarios
+            ],
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -2443,4 +2593,10 @@ class EMCPServer:
         "emms_complete_goal": _handle_complete_goal,
         "emms_spotlight_retrieve": _handle_spotlight_retrieve,
         "emms_find_analogies": _handle_find_analogies,
+        # v0.18.0 tools
+        "emms_predict": _handle_predict,
+        "emms_pending_predictions": _handle_pending_predictions,
+        "emms_blend_concepts": _handle_blend_concepts,
+        "emms_project_future": _handle_project_future,
+        "emms_plausible_futures": _handle_plausible_futures,
     }

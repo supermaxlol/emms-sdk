@@ -3050,3 +3050,127 @@ class EMMS:
         engine = AnalogyEngine(memory=self.memory, store_insights=False)
         engine.find_analogies()
         return engine.analogies_for(memory_id)
+
+    # ------------------------------------------------------------------
+    # v0.18.0 — The Predictive Mind
+    # ------------------------------------------------------------------
+
+    def predict(self, domain: "Optional[str]" = None) -> "Any":
+        """Generate predictions from recurring patterns in the memory store.
+
+        Args:
+            domain: Restrict to one domain (``None`` = all domains).
+
+        Returns:
+            :class:`PredictionReport` with newly generated predictions.
+        """
+        from emms.memory.prediction import PredictiveEngine
+        if not hasattr(self, "_predictive_engine"):
+            self._predictive_engine = PredictiveEngine(memory=self.memory)
+        return self._predictive_engine.predict(domain=domain)
+
+    def resolve_prediction(
+        self,
+        prediction_id: str,
+        outcome: str,
+        note: str = "",
+    ) -> bool:
+        """Resolve a pending prediction as confirmed or violated.
+
+        Args:
+            prediction_id: ID of the prediction to resolve.
+            outcome:        ``"confirmed"`` or ``"violated"``.
+            note:           Optional explanatory text.
+
+        Returns:
+            ``True`` if found and resolved.
+        """
+        if not hasattr(self, "_predictive_engine"):
+            return False
+        return self._predictive_engine.resolve(
+            prediction_id, outcome=outcome, note=note
+        )
+
+    def pending_predictions(self) -> "Any":
+        """Return all unresolved predictions sorted by confidence.
+
+        Returns:
+            List of :class:`Prediction` with ``outcome == "pending"``.
+        """
+        if not hasattr(self, "_predictive_engine"):
+            return []
+        return self._predictive_engine.pending_predictions()
+
+    def blend_concepts(
+        self,
+        domain_a: "Optional[str]" = None,
+        domain_b: "Optional[str]" = None,
+    ) -> "Any":
+        """Generate conceptual blends from memory pairs.
+
+        Args:
+            domain_a: Source domain for one side (``None`` = any).
+            domain_b: Source domain for other side (``None`` = any).
+
+        Returns:
+            :class:`BlendReport` with blended concepts sorted by strength.
+        """
+        from emms.memory.blending import ConceptBlender
+        engine = ConceptBlender(memory=self.memory)
+        return engine.blend(domain_a=domain_a, domain_b=domain_b)
+
+    def blend_pair(
+        self,
+        memory_id_a: str,
+        memory_id_b: str,
+    ) -> "Any":
+        """Blend a specific pair of memories.
+
+        Args:
+            memory_id_a: ID of the first memory.
+            memory_id_b: ID of the second memory.
+
+        Returns:
+            :class:`BlendedConcept` or ``None`` if either not found.
+        """
+        from emms.memory.blending import ConceptBlender
+        engine = ConceptBlender(memory=self.memory)
+        return engine.blend_pair(memory_id_a, memory_id_b)
+
+    def project_future(
+        self,
+        domain: "Optional[str]" = None,
+        horizon_days: float = 30.0,
+    ) -> "Any":
+        """Generate plausible future scenarios from memory patterns.
+
+        Args:
+            domain:       Restrict to one domain (``None`` = all domains).
+            horizon_days: Projection horizon in days (default 30).
+
+        Returns:
+            :class:`ProjectionReport` with scenarios sorted by plausibility.
+        """
+        from emms.memory.projection import TemporalProjection
+        episodic = getattr(self, "_episodic_buffer", None)
+        engine = TemporalProjection(
+            memory=self.memory,
+            episodic_buffer=episodic,
+            horizon_days=horizon_days,
+        )
+        return engine.project(domain=domain, horizon_days=horizon_days)
+
+    def most_plausible_futures(self, n: int = 3) -> "Any":
+        """Return the n most plausible future scenarios from the last projection.
+
+        Args:
+            n: Number of scenarios to return (default 3).
+
+        Returns:
+            List of :class:`FutureScenario` sorted by plausibility descending.
+        """
+        from emms.memory.projection import TemporalProjection
+        episodic = getattr(self, "_episodic_buffer", None)
+        engine = TemporalProjection(memory=self.memory, episodic_buffer=episodic)
+        engine.project()
+        return engine.most_plausible(n=n)

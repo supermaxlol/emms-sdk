@@ -1603,6 +1603,95 @@ def cmd_find_analogies(args: argparse.Namespace) -> None:
         print(report.summary())
 
 
+# v0.18.0 commands
+
+
+def cmd_predict(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.predict(domain=getattr(args, "domain", None) or None)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_generated": report.total_generated,
+            "confirmed": report.confirmed,
+            "violated": report.violated,
+            "pending": report.pending,
+            "mean_surprise": report.mean_surprise,
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_pending_predictions(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    preds = agent.pending_predictions()
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"id": p.id, "content": p.content, "confidence": p.confidence,
+             "domain": p.domain}
+            for p in preds
+        ]))
+    else:
+        if not preds:
+            print("No pending predictions.")
+        for p in preds:
+            print(p.summary())
+
+
+def cmd_blend_concepts(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.blend_concepts(
+        domain_a=getattr(args, "domain_a", None) or None,
+        domain_b=getattr(args, "domain_b", None) or None,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "blends_created": report.blends_created,
+            "concepts": [
+                {"id": c.id, "blend_strength": c.blend_strength,
+                 "source_domains": c.source_domains}
+                for c in report.concepts
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_project_future(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.project_future(
+        domain=getattr(args, "domain", None) or None,
+        horizon_days=getattr(args, "horizon_days", 30.0),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "scenarios_generated": report.scenarios_generated,
+            "mean_plausibility": report.mean_plausibility,
+            "scenarios": [
+                {"id": s.id, "domain": s.domain, "plausibility": s.plausibility,
+                 "content": s.content[:100]}
+                for s in report.scenarios
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_plausible_futures(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    scenarios = agent.most_plausible_futures(n=getattr(args, "n", 3))
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"id": s.id, "domain": s.domain, "plausibility": s.plausibility,
+             "content": s.content[:100]}
+            for s in scenarios
+        ]))
+    else:
+        if not scenarios:
+            print("No future scenarios available.")
+        for s in scenarios:
+            print(s.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -2231,6 +2320,40 @@ def build_parser() -> argparse.ArgumentParser:
     p_fa.add_argument("--target-domain", default=None, dest="target_domain",
                       help="Restrict target side to this domain.")
     p_fa.set_defaults(func=cmd_find_analogies)
+
+    # v0.18.0 commands
+
+    # predict
+    p_pred = sub.add_parser("predict", help="Generate domain predictions from memory patterns.")
+    p_pred.add_argument("--domain", default=None, help="Restrict predictions to this domain.")
+    p_pred.set_defaults(func=cmd_predict)
+
+    # pending-predictions
+    p_pp = sub.add_parser("pending-predictions", help="List unresolved predictions.")
+    p_pp.set_defaults(func=cmd_pending_predictions)
+
+    # blend-concepts
+    p_bc = sub.add_parser("blend-concepts",
+                           help="Blend memory pairs into conceptual syntheses.")
+    p_bc.add_argument("--domain-a", default=None, dest="domain_a",
+                      help="Source domain A for blending.")
+    p_bc.add_argument("--domain-b", default=None, dest="domain_b",
+                      help="Source domain B for blending.")
+    p_bc.set_defaults(func=cmd_blend_concepts)
+
+    # project-future
+    p_pf = sub.add_parser("project-future",
+                           help="Generate plausible future scenarios from memory.")
+    p_pf.add_argument("--domain", default=None, help="Restrict projection to this domain.")
+    p_pf.add_argument("--horizon-days", type=float, default=30.0, dest="horizon_days",
+                      help="Projection horizon in days (default 30).")
+    p_pf.set_defaults(func=cmd_project_future)
+
+    # plausible-futures
+    p_plf = sub.add_parser("plausible-futures",
+                            help="Return the most plausible future scenarios generated so far.")
+    p_plf.add_argument("--n", type=int, default=3, help="Number of scenarios to return.")
+    p_plf.set_defaults(func=cmd_plausible_futures)
 
     return parser
 
