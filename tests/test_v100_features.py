@@ -662,7 +662,7 @@ class TestMCPV100Tools:
         from emms.adapters.mcp_server import EMCPServer
         agent = _make_emms()
         server = EMCPServer(agent)
-        assert len(server.tool_definitions) == 67
+        assert len(server.tool_definitions) == 72
 
 
 # ---------------------------------------------------------------------------
@@ -673,7 +673,7 @@ class TestV100Exports:
 
     def test_version(self):
         import emms
-        assert emms.__version__ == "0.16.0"
+        assert emms.__version__ == "0.17.0"
 
     def test_reconsolidation_engine_export(self):
         from emms import ReconsolidationEngine

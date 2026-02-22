@@ -1,5 +1,37 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.17.0: The Goal-Directed Mind
+- GoalStack: hierarchical goal management with lifecycle tracking; goals have
+  priority (0..1), status (pending/active/completed/failed/abandoned), optional
+  parent_id for sub-goal formation, deadline, and supporting_memory_ids; lifecycle
+  methods push/activate/complete/fail/abandon; active_goals() sorted by priority;
+  sub_goals(goal_id) returns direct children; GoalReport with per-status counts;
+  biological analogue: hierarchical task decomposition (Koechlin & Summerfield
+  2007), prefrontal goal maintenance (Miller & Cohen 2001); EMMS façades:
+  push_goal, activate_goal, complete_goal, fail_goal, active_goals, goal_report
+- AttentionFilter: selective attention spotlight modulating memory retrieval;
+  spotlight built from free text (tokenised), explicit keywords, and active goal
+  IDs from attached GoalStack; attention_score = 0.40*goal_relevance +
+  0.30*importance + 0.20*keyword_overlap + 0.10*recency_score; spotlight_retrieve(k)
+  returns top-k items; attention_profile() returns domain → mean_score map;
+  clear_spotlight() resets focus; AttentionReport with spotlight_keywords and
+  top_domain; biological analogue: spotlight model (Posner 1980), biased
+  competition (Desimone & Duncan 1995); EMMS façades: update_spotlight,
+  spotlight_retrieve, attention_profile
+- AnalogyEngine: structural analogy detection across domains; similarity =
+  0.7*relational_jaccard + 0.3*content_jaccard where relational keywords are
+  causal/temporal connectives (causes, enables, prevents, requires, follows, etc.);
+  only cross-domain pairs considered; optionally stores each analogy as an "insight"
+  domain memory; AnalogyRecord with source/target domains, AnalogyMappings, and
+  insight_content; AnalogyReport sorted by strength; analogies_for(memory_id) for
+  per-memory lookup; biological analogue: Structure Mapping Theory (Gentner 1983),
+  analogical reminding (Holyoak & Thagard 1995); EMMS façades: find_analogies,
+  analogies_for
+- MCP tools (5 new): emms_push_goal, emms_active_goals, emms_complete_goal,
+  emms_spotlight_retrieve, emms_find_analogies (72 total)
+- CLI commands (5 new): push-goal, active-goals, complete-goal,
+  spotlight-retrieve, find-analogies (76 total)
+
 v0.16.0: The Curious Mind
 - CuriosityEngine: epistemic curiosity and knowledge-gap detection; scans memory
   for sparse/uncertain/contradictory/novel domains; ranks gaps by urgency; generates
@@ -306,10 +338,13 @@ from emms.memory.source_monitor import SourceMonitor, SourceTag, SourceAuditEntr
 from emms.memory.curiosity import CuriosityEngine, ExplorationGoal, CuriosityReport
 from emms.memory.belief_revision import BeliefReviser, RevisionRecord, RevisionReport
 from emms.memory.decay import MemoryDecay, DecayRecord, DecayReport
+from emms.memory.goals import GoalStack, Goal, GoalReport
+from emms.memory.attention import AttentionFilter, AttentionResult, AttentionReport
+from emms.memory.analogy import AnalogyEngine, AnalogyMapping, AnalogyRecord, AnalogyReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.16.0"
+__version__ = "0.17.0"
 __all__ = [
     # Core
     "EMMS",
@@ -427,6 +462,17 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.17.0 additions
+    "GoalStack",
+    "Goal",
+    "GoalReport",
+    "AttentionFilter",
+    "AttentionResult",
+    "AttentionReport",
+    "AnalogyEngine",
+    "AnalogyMapping",
+    "AnalogyRecord",
+    "AnalogyReport",
     # v0.16.0 additions
     "CuriosityEngine",
     "ExplorationGoal",

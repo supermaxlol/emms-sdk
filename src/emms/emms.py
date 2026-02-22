@@ -2904,3 +2904,149 @@ class EMMS:
         from emms.memory.decay import MemoryDecay
         engine = MemoryDecay(memory=self.memory)
         return engine.apply_decay(domain=domain, prune=prune)
+
+    # ------------------------------------------------------------------
+    # v0.17.0 — The Goal-Directed Mind
+    # ------------------------------------------------------------------
+
+    def _get_goal_stack(self) -> "Any":
+        """Lazy-init and return the shared GoalStack instance."""
+        if not hasattr(self, "_goal_stack"):
+            from emms.memory.goals import GoalStack
+            self._goal_stack = GoalStack(memory=self.memory)
+        return self._goal_stack
+
+    def push_goal(
+        self,
+        content: str,
+        domain: str = "general",
+        priority: float = 0.5,
+        parent_id: "Optional[str]" = None,
+        deadline: "Optional[float]" = None,
+    ) -> "Any":
+        """Push a new goal onto the goal stack.
+
+        Args:
+            content:   Goal description.
+            domain:    Knowledge domain (default ``"general"``).
+            priority:  Urgency 0..1 (default 0.5).
+            parent_id: Parent goal ID for sub-goal creation.
+            deadline:  Optional unix timestamp deadline.
+
+        Returns:
+            The newly created :class:`Goal`.
+        """
+        return self._get_goal_stack().push(
+            content=content, domain=domain, priority=priority,
+            parent_id=parent_id, deadline=deadline,
+        )
+
+    def activate_goal(self, goal_id: str) -> bool:
+        """Move a pending goal to active status.
+
+        Returns:
+            ``True`` if found and activated.
+        """
+        return self._get_goal_stack().activate(goal_id)
+
+    def complete_goal(self, goal_id: str, outcome_note: str = "") -> bool:
+        """Mark a goal as successfully completed.
+
+        Returns:
+            ``True`` if found and completed.
+        """
+        return self._get_goal_stack().complete(goal_id, outcome_note=outcome_note)
+
+    def fail_goal(self, goal_id: str, reason: str = "") -> bool:
+        """Mark a goal as failed.
+
+        Returns:
+            ``True`` if found and failed.
+        """
+        return self._get_goal_stack().fail(goal_id, reason=reason)
+
+    def active_goals(self) -> "Any":
+        """Return all currently active goals sorted by priority.
+
+        Returns:
+            List of :class:`Goal` with ``status == "active"``.
+        """
+        return self._get_goal_stack().active_goals()
+
+    def goal_report(self) -> "Any":
+        """Generate a full goal hierarchy report.
+
+        Returns:
+            :class:`GoalReport` with per-status counts and goal list.
+        """
+        return self._get_goal_stack().report()
+
+    def _get_attention_filter(self) -> "Any":
+        """Lazy-init and return the shared AttentionFilter instance."""
+        if not hasattr(self, "_attention_filter"):
+            from emms.memory.attention import AttentionFilter
+            goal_stack = getattr(self, "_goal_stack", None)
+            self._attention_filter = AttentionFilter(
+                memory=self.memory, goal_stack=goal_stack
+            )
+        return self._attention_filter
+
+    def update_spotlight(
+        self,
+        text: "Optional[str]" = None,
+        goal_ids: "Optional[list]" = None,
+        keywords: "Optional[list]" = None,
+    ) -> None:
+        """Expand the attentional spotlight with new content.
+
+        Args:
+            text:      Free text whose tokens are added to spotlight.
+            goal_ids:  Goal IDs to track in the spotlight.
+            keywords:  Explicit keyword list to add.
+        """
+        self._get_attention_filter().update_spotlight(
+            text=text, goal_ids=goal_ids, keywords=keywords
+        )
+
+    def spotlight_retrieve(self, k: int = 8) -> "Any":
+        """Return the k most attention-relevant memories.
+
+        Returns:
+            :class:`AttentionReport` with scored results.
+        """
+        return self._get_attention_filter().spotlight_retrieve(k=k)
+
+    def attention_profile(self) -> "Any":
+        """Return mean attention scores per domain.
+
+        Returns:
+            Dict mapping domain → mean attention score (0..1).
+        """
+        return self._get_attention_filter().attention_profile()
+
+    def find_analogies(
+        self,
+        source_domain: "Optional[str]" = None,
+        target_domain: "Optional[str]" = None,
+    ) -> "Any":
+        """Find structural analogies across memory domains.
+
+        Returns:
+            :class:`AnalogyReport` with analogies sorted by strength.
+        """
+        from emms.memory.analogy import AnalogyEngine
+        engine = AnalogyEngine(memory=self.memory)
+        return engine.find_analogies(
+            source_domain=source_domain, target_domain=target_domain
+        )
+
+    def analogies_for(self, memory_id: str) -> "Any":
+        """Return all recorded analogies involving a specific memory.
+
+        Returns:
+            List of :class:`AnalogyRecord` referencing this memory.
+        """
+        from emms.memory.analogy import AnalogyEngine
+        engine = AnalogyEngine(memory=self.memory, store_insights=False)
+        engine.find_analogies()
+        return engine.analogies_for(memory_id)

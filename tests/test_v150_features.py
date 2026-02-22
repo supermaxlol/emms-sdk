@@ -614,7 +614,7 @@ class TestMCPV150:
 
     def test_tool_count_is_62(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
-        assert len(_TOOL_DEFINITIONS) == 67
+        assert len(_TOOL_DEFINITIONS) == 72
 
     def test_v150_tools_in_definitions(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
@@ -680,7 +680,7 @@ class TestV150Exports:
 
     def test_version_is_0_15_0(self):
         import emms
-        assert emms.__version__ == "0.16.0"
+        assert emms.__version__ == "0.17.0"
 
     def test_reflection_engine_exported(self):
         from emms import ReflectionEngine

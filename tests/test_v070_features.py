@@ -702,7 +702,7 @@ class TestMCPV070Tools:
     def test_total_tool_count(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
         # 20 from v0.5.x–v0.6.0 + 2 v0.7.0 + 5 v0.8.0 = 27
-        assert len(_TOOL_DEFINITIONS) == 67
+        assert len(_TOOL_DEFINITIONS) == 72
 
 
 # ===========================================================================
@@ -712,7 +712,7 @@ class TestMCPV070Tools:
 class TestV070Exports:
     def test_version(self):
         import emms
-        assert emms.__version__ == "0.16.0"
+        assert emms.__version__ == "0.17.0"
 
     def test_memory_diff_exported(self):
         from emms import MemoryDiff, DiffResult, ItemSnapshot

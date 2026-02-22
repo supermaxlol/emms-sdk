@@ -1507,6 +1507,102 @@ def cmd_apply_decay(args: argparse.Namespace) -> None:
         print(report.summary())
 
 
+# v0.17.0 commands
+
+
+def cmd_push_goal(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    goal = agent.push_goal(
+        content=args.content,
+        domain=getattr(args, "domain", "general") or "general",
+        priority=getattr(args, "priority", 0.5),
+        parent_id=getattr(args, "parent_id", None) or None,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "id": goal.id,
+            "content": goal.content,
+            "domain": goal.domain,
+            "priority": goal.priority,
+            "status": goal.status,
+        }))
+    else:
+        print(goal.summary())
+
+
+def cmd_active_goals(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    goals = agent.active_goals()
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"id": g.id, "content": g.content, "priority": g.priority, "domain": g.domain}
+            for g in goals
+        ]))
+    else:
+        if not goals:
+            print("No active goals.")
+        for g in goals:
+            print(g.summary())
+
+
+def cmd_complete_goal(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    ok = agent.complete_goal(
+        goal_id=args.goal_id,
+        outcome_note=getattr(args, "note", "") or "",
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": ok, "goal_id": args.goal_id}))
+    else:
+        status = "completed" if ok else "not found / already resolved"
+        print(f"Goal {args.goal_id}: {status}")
+
+
+def cmd_spotlight_retrieve(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    text = getattr(args, "text", None) or None
+    keywords = getattr(args, "keywords", None)
+    if text or keywords:
+        agent.update_spotlight(
+            text=text,
+            keywords=keywords.split(",") if keywords else None,
+        )
+    report = agent.spotlight_retrieve(k=getattr(args, "k", 8))
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "items_scored": report.items_scored,
+            "top_domain": report.top_domain,
+            "results": [
+                {"memory_id": r.memory_id, "attention_score": r.attention_score,
+                 "content_excerpt": r.content_excerpt[:80]}
+                for r in report.results
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_find_analogies(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.find_analogies(
+        source_domain=getattr(args, "source_domain", None) or None,
+        target_domain=getattr(args, "target_domain", None) or None,
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_pairs_checked": report.total_pairs_checked,
+            "analogies_found": report.analogies_found,
+            "records": [
+                {"id": r.id, "source_domain": r.source_domain,
+                 "target_domain": r.target_domain,
+                 "analogy_strength": r.analogy_strength}
+                for r in report.records
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -2095,6 +2191,46 @@ def build_parser() -> argparse.ArgumentParser:
     p_ad.add_argument("--prune", action="store_true",
                       help="Remove memories below the prune threshold after decay.")
     p_ad.set_defaults(func=cmd_apply_decay)
+
+    # v0.17.0 commands
+
+    # push-goal
+    p_pg = sub.add_parser("push-goal", help="Push a new goal onto the goal stack.")
+    p_pg.add_argument("content", help="Goal description.")
+    p_pg.add_argument("--domain", default="general", help="Knowledge domain (default: general).")
+    p_pg.add_argument("--priority", type=float, default=0.5,
+                      help="Urgency 0..1 (default 0.5).")
+    p_pg.add_argument("--parent-id", default=None, dest="parent_id",
+                      help="Parent goal ID for sub-goal formation.")
+    p_pg.set_defaults(func=cmd_push_goal)
+
+    # active-goals
+    p_ag2 = sub.add_parser("active-goals", help="List all currently active goals.")
+    p_ag2.set_defaults(func=cmd_active_goals)
+
+    # complete-goal
+    p_cg = sub.add_parser("complete-goal", help="Mark a goal as successfully completed.")
+    p_cg.add_argument("goal_id", help="ID of the goal to complete.")
+    p_cg.add_argument("--note", default="", help="Optional outcome note.")
+    p_cg.set_defaults(func=cmd_complete_goal)
+
+    # spotlight-retrieve
+    p_sr = sub.add_parser("spotlight-retrieve",
+                           help="Retrieve memories most relevant to the attentional spotlight.")
+    p_sr.add_argument("--k", type=int, default=8, help="Maximum results (default 8).")
+    p_sr.add_argument("--text", default=None, help="Context text to expand spotlight.")
+    p_sr.add_argument("--keywords", default=None,
+                      help="Comma-separated keywords to add to spotlight.")
+    p_sr.set_defaults(func=cmd_spotlight_retrieve)
+
+    # find-analogies
+    p_fa = sub.add_parser("find-analogies",
+                           help="Detect structural analogies across memory domains.")
+    p_fa.add_argument("--source-domain", default=None, dest="source_domain",
+                      help="Restrict source side to this domain.")
+    p_fa.add_argument("--target-domain", default=None, dest="target_domain",
+                      help="Restrict target side to this domain.")
+    p_fa.set_defaults(func=cmd_find_analogies)
 
     return parser
 

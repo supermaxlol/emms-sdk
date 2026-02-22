@@ -893,6 +893,64 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    # v0.17.0 tools
+    {
+        "name": "emms_push_goal",
+        "description": "Push a new goal onto the goal stack with priority and optional parent for hierarchical decomposition.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "Goal description."},
+                "domain": {"type": "string", "default": "general", "description": "Knowledge domain for this goal."},
+                "priority": {"type": "number", "default": 0.5, "description": "Urgency 0..1 (higher = more urgent)."},
+                "parent_id": {"type": "string", "description": "Parent goal ID to form a sub-goal (optional)."},
+            },
+            "required": ["content"],
+        },
+    },
+    {
+        "name": "emms_active_goals",
+        "description": "List all currently active goals sorted by priority descending.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "emms_complete_goal",
+        "description": "Mark a goal as successfully completed, optionally recording an outcome note.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal_id": {"type": "string", "description": "ID of the goal to complete."},
+                "outcome_note": {"type": "string", "default": "", "description": "Optional text describing the outcome."},
+            },
+            "required": ["goal_id"],
+        },
+    },
+    {
+        "name": "emms_spotlight_retrieve",
+        "description": "Retrieve memories most relevant to the current attentional spotlight — informed by active goals, keywords, and context text.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "k": {"type": "integer", "default": 8, "description": "Maximum number of memories to return."},
+                "text": {"type": "string", "description": "Context text to expand the spotlight (optional)."},
+                "keywords": {"type": "array", "items": {"type": "string"}, "description": "Explicit keywords to focus the spotlight (optional)."},
+            },
+        },
+    },
+    {
+        "name": "emms_find_analogies",
+        "description": "Detect structural analogies across memory domains — memories that share relational patterns (causal, enabling, temporal) even if their topics differ.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source_domain": {"type": "string", "description": "Restrict source side to this domain (omit for all)."},
+                "target_domain": {"type": "string", "description": "Restrict target side to this domain (omit for all)."},
+            },
+        },
+    },
 ]
 
 
@@ -2211,6 +2269,95 @@ class EMCPServer:
             "summary": report.summary(),
         }
 
+    # v0.17.0 handlers
+
+    def _handle_push_goal(self, args: dict[str, Any]) -> dict[str, Any]:
+        goal = self.emms.push_goal(
+            content=args["content"],
+            domain=str(args.get("domain", "general")),
+            priority=float(args.get("priority", 0.5)),
+            parent_id=args.get("parent_id"),
+        )
+        return {
+            "id": goal.id,
+            "content": goal.content,
+            "domain": goal.domain,
+            "priority": goal.priority,
+            "status": goal.status,
+            "parent_id": goal.parent_id,
+            "summary": goal.summary(),
+        }
+
+    def _handle_active_goals(self, args: dict[str, Any]) -> dict[str, Any]:
+        goals = self.emms.active_goals()
+        return {
+            "count": len(goals),
+            "goals": [
+                {
+                    "id": g.id,
+                    "content": g.content,
+                    "domain": g.domain,
+                    "priority": g.priority,
+                    "status": g.status,
+                }
+                for g in goals
+            ],
+        }
+
+    def _handle_complete_goal(self, args: dict[str, Any]) -> dict[str, Any]:
+        ok = self.emms.complete_goal(
+            goal_id=args["goal_id"],
+            outcome_note=str(args.get("outcome_note", "")),
+        )
+        return {"ok": ok, "goal_id": args["goal_id"]}
+
+    def _handle_spotlight_retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
+        text = args.get("text")
+        keywords = args.get("keywords")
+        if text or keywords:
+            self.emms.update_spotlight(
+                text=text,
+                keywords=list(keywords) if keywords else None,
+            )
+        report = self.emms.spotlight_retrieve(k=int(args.get("k", 8)))
+        return {
+            "items_scored": report.items_scored,
+            "top_domain": report.top_domain,
+            "spotlight_keywords": report.spotlight_keywords,
+            "results": [
+                {
+                    "memory_id": r.memory_id,
+                    "domain": r.domain,
+                    "attention_score": r.attention_score,
+                    "content_excerpt": r.content_excerpt[:80],
+                }
+                for r in report.results
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_find_analogies(self, args: dict[str, Any]) -> dict[str, Any]:
+        report = self.emms.find_analogies(
+            source_domain=args.get("source_domain"),
+            target_domain=args.get("target_domain"),
+        )
+        return {
+            "total_pairs_checked": report.total_pairs_checked,
+            "analogies_found": report.analogies_found,
+            "records": [
+                {
+                    "id": r.id,
+                    "source_domain": r.source_domain,
+                    "target_domain": r.target_domain,
+                    "analogy_strength": r.analogy_strength,
+                    "insight_content": r.insight_content[:120],
+                }
+                for r in report.records
+            ],
+            "duration_seconds": round(report.duration_seconds, 4),
+            "summary": report.summary(),
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -2290,4 +2437,10 @@ class EMCPServer:
         "emms_revise_beliefs": _handle_revise_beliefs,
         "emms_decay_report": _handle_decay_report,
         "emms_apply_decay": _handle_apply_decay,
+        # v0.17.0 tools
+        "emms_push_goal": _handle_push_goal,
+        "emms_active_goals": _handle_active_goals,
+        "emms_complete_goal": _handle_complete_goal,
+        "emms_spotlight_retrieve": _handle_spotlight_retrieve,
+        "emms_find_analogies": _handle_find_analogies,
     }
