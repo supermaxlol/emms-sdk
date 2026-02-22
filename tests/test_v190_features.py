@@ -831,7 +831,7 @@ class TestEMMSFacadeV190:
 class TestMCPV190:
 
     def test_tool_count_is_82(self):
-        assert len(_TOOL_DEFINITIONS) == 97
+        assert len(_TOOL_DEFINITIONS) == 102
 
     def test_emms_regulate_emotions_callable(self):
         agent = _make_rich_emms()
@@ -903,7 +903,7 @@ class TestV190Exports:
 
     def test_version_is_0_19_0(self):
         import emms
-        assert emms.__version__ == "0.22.0"
+        assert emms.__version__ == "0.23.0"
 
     def test_emotional_regulator_exported(self):
         from emms import EmotionalRegulator

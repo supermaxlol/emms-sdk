@@ -53,6 +53,11 @@ You can also set: export ANTHROPIC_API_KEY="sk-ant-..."
    /invent         Novel cross-domain invented concepts
    /abstract       Abstract recurring principles from episodes
 
+ MORAL MIND (v0.23.0)
+   /values         Core value extraction from memory (5 categories)
+   /moral          Ethical framework evaluation (C/D/V) per memory
+   /dilemmas       Ethical tensions between conflicting imperatives
+
  SESSION
    /bridge         Open threads from previous session
    /prompt         Full system prompt sent to Claude
@@ -999,6 +1004,61 @@ def show_abstract_principles(emms: EMMS) -> None:
     print("--- End Abstract Principles ---\n")
 
 
+def show_values(emms: EMMS) -> None:
+    print("\n--- Core Values ---")
+    try:
+        report = emms.map_values()
+        print(f"  Values: {report.total_values}  "
+              f"Dominant: {report.dominant_category}  "
+              f"Mean strength: {report.mean_strength:.3f}")
+        if not report.values:
+            print("  (No values detected yet)")
+        for v in report.values[:10]:
+            print(f"  [{v.category:14s}]  strength={v.strength:.3f}  '{v.name}'")
+    except Exception as e:
+        print(f"  Value mapping failed: {e}")
+    print("--- End Core Values ---\n")
+
+
+def show_moral(emms: EMMS) -> None:
+    print("\n--- Moral Reasoning ---")
+    try:
+        report = emms.reason_morally()
+        print(f"  Assessed: {report.total_assessed}  "
+              f"Dominant: {report.dominant_framework_overall}  "
+              f"Mean weight: {report.mean_moral_weight:.3f}")
+        print(f"  Framework counts: C={report.framework_counts.get('consequentialist',0)}  "
+              f"D={report.framework_counts.get('deontological',0)}  "
+              f"V={report.framework_counts.get('virtue',0)}")
+        if not report.assessments:
+            print("  (No moral assessments yet)")
+        for a in report.assessments[:6]:
+            print(f"  [{a.domain:10s}]  weight={a.moral_weight:.3f}  "
+                  f"fw={a.dominant_framework:16s}  '{a.content_excerpt[:50]}'")
+    except Exception as e:
+        print(f"  Moral reasoning failed: {e}")
+    print("--- End Moral Reasoning ---\n")
+
+
+def show_dilemmas(emms: EMMS) -> None:
+    print("\n--- Ethical Dilemmas ---")
+    try:
+        emms.reason_morally()
+        report = emms.detect_dilemmas()
+        print(f"  Dilemmas: {report.total_dilemmas}  "
+              f"Mean tension: {report.mean_tension:.3f}  "
+              f"Domains: {', '.join(report.domains_affected[:5])}")
+        if not report.dilemmas:
+            print("  (No ethical dilemmas detected)")
+        for d in report.dilemmas[:5]:
+            print(f"  [{d.domain:10s}]  tension={d.tension_score:.3f}  "
+                  f"{d.framework_a} vs {d.framework_b}")
+            print(f"    Strategy: {d.resolution_strategies[0][:80]}")
+    except Exception as e:
+        print(f"  Dilemma detection failed: {e}")
+    print("--- End Ethical Dilemmas ---\n")
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Display helpers — SESSION
 # ──────────────────────────────────────────────────────────────────────
@@ -1088,6 +1148,11 @@ HELP_TEXT = """\
     /invent         Cross-domain invented concepts
     /abstract       Recurring abstract principles
 
+  MORAL MIND (v0.23.0)
+    /values         Core value extraction (5 categories)
+    /moral          Ethical framework evaluation per memory
+    /dilemmas       Ethical tensions between imperatives
+
   SESSION
     /bridge         Previous session open threads
     /prompt         Full system prompt
@@ -1102,7 +1167,7 @@ HELP_TEXT = """\
 
 def main() -> None:
     print("=" * 64)
-    print("  EMMS v0.22.0 — Full-Feature Interactive Agent")
+    print("  EMMS v0.23.0 — Full-Feature Interactive Agent")
     print("=" * 64)
     print()
 
@@ -1199,6 +1264,12 @@ def main() -> None:
             show_invented_concepts(emms); continue
         elif cmd == "/abstract":
             show_abstract_principles(emms); continue
+        elif cmd == "/values":
+            show_values(emms); continue
+        elif cmd == "/moral":
+            show_moral(emms); continue
+        elif cmd == "/dilemmas":
+            show_dilemmas(emms); continue
         elif cmd == "/bridge":
             show_bridge(); continue
         elif cmd == "/prompt":

@@ -807,7 +807,7 @@ class TestEMMSFacadeV180:
 class TestMCPV180:
 
     def test_tool_count_is_77(self):
-        assert len(_TOOL_DEFINITIONS) == 97
+        assert len(_TOOL_DEFINITIONS) == 102
 
     def test_emms_predict_callable(self):
         agent = _make_rich_emms()
@@ -868,7 +868,7 @@ class TestV180Exports:
 
     def test_version_is_0_18_0(self):
         import emms
-        assert emms.__version__ == "0.22.0"
+        assert emms.__version__ == "0.23.0"
 
     def test_predictive_engine_exported(self):
         from emms import PredictiveEngine

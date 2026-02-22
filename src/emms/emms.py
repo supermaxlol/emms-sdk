@@ -3641,3 +3641,131 @@ class EMMS:
             Best-matching :class:`AbstractPrinciple`, or ``None`` if none.
         """
         return self._get_abstraction_engine().best_principle(description)
+
+    # ------------------------------------------------------------------
+    # v0.23.0 — ValueMapper
+    # ------------------------------------------------------------------
+
+    def _get_value_mapper(self) -> "Any":
+        if not hasattr(self, "_value_mapper"):
+            from emms.memory.values import ValueMapper
+            self._value_mapper = ValueMapper(memory=self.memory)
+        return self._value_mapper
+
+    def map_values(self, category: "Optional[str]" = None) -> "Any":
+        """Extract core values from accumulated memory.
+
+        Args:
+            category: Restrict to this value category — one of epistemic,
+                moral, aesthetic, instrumental, social (``None`` = all).
+
+        Returns:
+            :class:`ValueReport` with values sorted by strength descending.
+        """
+        return self._get_value_mapper().map_values(category=category)
+
+    def values_for_category(self, category: str) -> "Any":
+        """Return all mapped values in a specific category.
+
+        Args:
+            category: One of epistemic, moral, aesthetic, instrumental, social.
+
+        Returns:
+            List of :class:`MappedValue` in that category.
+        """
+        return self._get_value_mapper().values_for_category(category)
+
+    def strongest_value(self) -> "Any":
+        """Return the single strongest value, or ``None`` if none mapped.
+
+        Returns:
+            Strongest :class:`MappedValue`, or ``None``.
+        """
+        return self._get_value_mapper().strongest_value()
+
+    # ------------------------------------------------------------------
+    # v0.23.0 — MoralReasoner
+    # ------------------------------------------------------------------
+
+    def _get_moral_reasoner(self) -> "Any":
+        if not hasattr(self, "_moral_reasoner"):
+            from emms.memory.moral import MoralReasoner
+            self._moral_reasoner = MoralReasoner(memory=self.memory)
+        return self._moral_reasoner
+
+    def reason_morally(self, domain: "Optional[str]" = None) -> "Any":
+        """Evaluate memories through three classical ethical frameworks.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`MoralReport` with assessments sorted by moral_weight desc.
+        """
+        return self._get_moral_reasoner().reason(domain=domain)
+
+    def moral_weight_of(self, memory_id: str) -> float:
+        """Return the moral weight of a specific memory (0.0 if not assessed).
+
+        Args:
+            memory_id: ID of the memory to query.
+
+        Returns:
+            Moral weight 0..1.
+        """
+        return self._get_moral_reasoner().moral_weight_of(memory_id)
+
+    def assessments_by_framework(self, framework: str) -> "Any":
+        """Return moral assessments dominated by the given framework.
+
+        Args:
+            framework: One of consequentialist, deontological, virtue, none.
+
+        Returns:
+            List of :class:`MoralAssessment` sorted by moral_weight descending.
+        """
+        return self._get_moral_reasoner().assessments_by_framework(framework)
+
+    # ------------------------------------------------------------------
+    # v0.23.0 — DilemmaEngine
+    # ------------------------------------------------------------------
+
+    def _get_dilemma_engine(self) -> "Any":
+        if not hasattr(self, "_dilemma_engine"):
+            from emms.memory.dilemma import DilemmaEngine
+            reasoner = self._get_moral_reasoner()
+            self._dilemma_engine = DilemmaEngine(
+                memory=self.memory,
+                moral_reasoner=reasoner,
+            )
+        return self._dilemma_engine
+
+    def detect_dilemmas(self, domain: "Optional[str]" = None) -> "Any":
+        """Detect ethical tensions between conflicting moral memories.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`DilemmaReport` with dilemmas sorted by tension_score desc.
+        """
+        return self._get_dilemma_engine().detect_dilemmas(domain=domain)
+
+    def dilemmas_for_domain(self, domain: str) -> "Any":
+        """Return all detected dilemmas in a specific domain.
+
+        Args:
+            domain: Domain name to filter by.
+
+        Returns:
+            List of :class:`EthicalDilemma` sorted by tension_score descending.
+        """
+        return self._get_dilemma_engine().dilemmas_for_domain(domain)
+
+    def most_tense_dilemma(self) -> "Any":
+        """Return the dilemma with the highest tension score, or ``None``.
+
+        Returns:
+            Most tense :class:`EthicalDilemma`, or ``None`` if none detected.
+        """
+        return self._get_dilemma_engine().most_tense_dilemma()

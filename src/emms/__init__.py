@@ -1,5 +1,36 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.23.0: The Moral Mind
+- ValueMapper: core value extraction from memory via 5-category value lexicon
+  (epistemic, moral, aesthetic, instrumental, social); strength = mean_importance
+  × freq_ratio × 5.0 clamped 0..1; MappedValue IDs prefixed "val_"; ValueReport
+  with dominant_category, mean_strength; values_for_category; strongest_value;
+  biological analogue: value-based decision-making OFC (Rangel et al. 2008),
+  personal value schemas (Schwartz 1992); EMMS façades: map_values,
+  values_for_category, strongest_value
+- MoralReasoner: three-framework ethical evaluation (consequentialist, deontological,
+  virtue); framework_score = matching_tokens/total_tokens; dominant_framework =
+  argmax (or "none" if all < 0.01); moral_weight = importance × |valence| ×
+  (max_score + 0.1) clamped 0..1; MoralAssessment per memory; MoralReport with
+  framework_counts, dominant_framework_overall; assessments_by_framework;
+  moral_weight_of (0.0 default if not assessed); biological analogue: dual-process
+  moral cognition (Greene 2008), vmPFC/TPJ moral judgment (Greene et al. 2001),
+  moral foundations theory (Haidt 2012); EMMS façades: reason_morally,
+  moral_weight_of, assessments_by_framework
+- DilemmaEngine: ethical tension detection; pairs same-domain memories with
+  moral_weight ≥ min_tension and |valence_a − valence_b| > 0.5; tension_score =
+  mw_a × mw_b × |val_diff| clamped 0..1; resolution strategies from template table
+  keyed by (framework_a, framework_b); EthicalDilemma IDs prefixed "dil_";
+  DilemmaReport with domains_affected, mean_tension; dilemmas_for_domain;
+  most_tense_dilemma; biological analogue: trolley-problem studies (Greene et al.
+  2001), ACC conflict monitoring (Botvinick et al. 2001), dual-process tension
+  (Cushman & Young 2011); EMMS façades: detect_dilemmas, dilemmas_for_domain,
+  most_tense_dilemma
+- MCP tools (5 new): emms_map_values, emms_values_for_category, emms_reason_morally,
+  emms_detect_dilemmas, emms_most_tense_dilemma (102 total)
+- CLI commands (5 new): map-values, values-for-category, reason-morally,
+  detect-dilemmas, most-tense-dilemma (106 total)
+
 v0.22.0: The Creative Mind
 - NoveltyDetector: memory novelty scoring against corpus centroid; builds
   global token-document-frequency counter from all memory content; rarity
@@ -522,13 +553,16 @@ from emms.memory.skills import SkillDistiller, DistilledSkill, SkillReport
 from emms.memory.novelty import NoveltyDetector, NoveltyScore, NoveltyReport
 from emms.memory.inventor import ConceptInventor, InventedConcept, InventionReport
 from emms.memory.abstraction import AbstractionEngine, AbstractPrinciple, AbstractionReport
+from emms.memory.values import ValueMapper, MappedValue, ValueReport
+from emms.memory.moral import MoralReasoner, MoralAssessment, MoralReport
+from emms.memory.dilemma import DilemmaEngine, EthicalDilemma, DilemmaReport
 from emms.memory.perspective import PerspectiveTaker, AgentModel, PerspectiveReport
 from emms.memory.trust import TrustLedger, TrustScore, TrustReport
 from emms.memory.norms import NormExtractor, SocialNorm, NormReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.22.0"
+__version__ = "0.23.0"
 __all__ = [
     # Core
     "EMMS",
@@ -646,6 +680,16 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.23.0 additions
+    "ValueMapper",
+    "MappedValue",
+    "ValueReport",
+    "MoralReasoner",
+    "MoralAssessment",
+    "MoralReport",
+    "DilemmaEngine",
+    "EthicalDilemma",
+    "DilemmaReport",
     # v0.22.0 additions
     "NoveltyDetector",
     "NoveltyScore",

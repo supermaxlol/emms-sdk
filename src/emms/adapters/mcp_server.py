@@ -1210,6 +1210,56 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["description"],
         },
     },
+    # v0.23.0 tools
+    {
+        "name": "emms_map_values",
+        "description": "Extract core values from accumulated memory via a 5-category value lexicon (epistemic, moral, aesthetic, instrumental, social).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "Restrict to this value category (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_values_for_category",
+        "description": "Return all mapped values in a specific value category after map_values has been called.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "One of: epistemic, moral, aesthetic, instrumental, social."},
+            },
+            "required": ["category"],
+        },
+    },
+    {
+        "name": "emms_reason_morally",
+        "description": "Evaluate memories through three classical ethical frameworks: consequentialist, deontological, and virtue ethics.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_detect_dilemmas",
+        "description": "Detect ethical tensions between conflicting moral imperatives in memory — pairs of same-domain memories with opposing valences and high moral weight.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_most_tense_dilemma",
+        "description": "Return the ethical dilemma with the highest tension score from the last detect_dilemmas call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -3121,6 +3171,119 @@ class EMCPServer:
             },
         }
 
+    # ------------------------------------------------------------------
+    # v0.23.0 handlers
+    # ------------------------------------------------------------------
+
+    def _handle_map_values(self, args: dict[str, Any]) -> dict[str, Any]:
+        category = args.get("category")
+        report = self.emms.map_values(category=category)
+        return {
+            "ok": True,
+            "total_values": report.total_values,
+            "dominant_category": report.dominant_category,
+            "mean_strength": report.mean_strength,
+            "values": [
+                {
+                    "id": v.id,
+                    "name": v.name,
+                    "category": v.category,
+                    "strength": v.strength,
+                    "description": v.description[:100],
+                }
+                for v in report.values[:10]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_values_for_category(self, args: dict[str, Any]) -> dict[str, Any]:
+        category = args.get("category", "")
+        self.emms.map_values()
+        values = self.emms.values_for_category(category)
+        return {
+            "ok": True,
+            "category": category,
+            "count": len(values),
+            "values": [
+                {
+                    "id": v.id,
+                    "name": v.name,
+                    "strength": v.strength,
+                    "description": v.description[:100],
+                }
+                for v in values
+            ],
+        }
+
+    def _handle_reason_morally(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        report = self.emms.reason_morally(domain=domain)
+        return {
+            "ok": True,
+            "total_assessed": report.total_assessed,
+            "dominant_framework_overall": report.dominant_framework_overall,
+            "mean_moral_weight": report.mean_moral_weight,
+            "framework_counts": report.framework_counts,
+            "assessments": [
+                {
+                    "memory_id": a.memory_id,
+                    "dominant_framework": a.dominant_framework,
+                    "moral_weight": a.moral_weight,
+                    "consequentialist_score": a.consequentialist_score,
+                    "deontological_score": a.deontological_score,
+                    "virtue_score": a.virtue_score,
+                    "domain": a.domain,
+                    "content_excerpt": a.content_excerpt[:60],
+                }
+                for a in report.assessments[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_detect_dilemmas(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        self.emms.reason_morally(domain=domain)
+        report = self.emms.detect_dilemmas(domain=domain)
+        return {
+            "ok": True,
+            "total_dilemmas": report.total_dilemmas,
+            "mean_tension": report.mean_tension,
+            "domains_affected": report.domains_affected,
+            "dilemmas": [
+                {
+                    "id": d.id,
+                    "domain": d.domain,
+                    "tension_score": d.tension_score,
+                    "framework_a": d.framework_a,
+                    "framework_b": d.framework_b,
+                    "resolution_strategies": d.resolution_strategies,
+                    "description": d.description[:100],
+                }
+                for d in report.dilemmas[:5]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_most_tense_dilemma(self, args: dict[str, Any]) -> dict[str, Any]:
+        self.emms.reason_morally()
+        self.emms.detect_dilemmas()
+        dilemma = self.emms.most_tense_dilemma()
+        if dilemma is None:
+            return {"ok": True, "found": False, "dilemma": None}
+        return {
+            "ok": True,
+            "found": True,
+            "dilemma": {
+                "id": dilemma.id,
+                "domain": dilemma.domain,
+                "tension_score": dilemma.tension_score,
+                "framework_a": dilemma.framework_a,
+                "framework_b": dilemma.framework_b,
+                "resolution_strategies": dilemma.resolution_strategies,
+                "description": dilemma.description,
+            },
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -3236,4 +3399,10 @@ class EMCPServer:
         "emms_invent_concepts": _handle_invent_concepts,
         "emms_abstract_principles": _handle_abstract_principles,
         "emms_best_principle": _handle_best_principle,
+        # v0.23.0 tools
+        "emms_map_values": _handle_map_values,
+        "emms_values_for_category": _handle_values_for_category,
+        "emms_reason_morally": _handle_reason_morally,
+        "emms_detect_dilemmas": _handle_detect_dilemmas,
+        "emms_most_tense_dilemma": _handle_most_tense_dilemma,
     }

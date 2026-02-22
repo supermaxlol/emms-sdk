@@ -718,7 +718,7 @@ class TestEMMSFacadeV170:
 class TestMCPV170:
 
     def test_tool_count_72(self):
-        assert len(_TOOL_DEFINITIONS) == 97
+        assert len(_TOOL_DEFINITIONS) == 102
 
     def test_all_tool_names_unique(self):
         names = [t["name"] for t in _TOOL_DEFINITIONS]
@@ -784,7 +784,7 @@ class TestV170Exports:
 
     def test_version_string(self):
         import emms
-        assert emms.__version__ == "0.22.0"
+        assert emms.__version__ == "0.23.0"
 
     def test_goal_stack_exported(self):
         from emms import GoalStack

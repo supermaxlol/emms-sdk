@@ -898,7 +898,7 @@ class TestMCPV080Tools:
 
     def test_total_tool_count(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
-        assert len(_TOOL_DEFINITIONS) == 97
+        assert len(_TOOL_DEFINITIONS) == 102
 
     def test_hybrid_retrieve_tool(self):
         server = self._make_server()
@@ -1003,4 +1003,4 @@ class TestV080Exports:
 
     def test_version(self):
         from emms import __version__
-        assert __version__ == "0.22.0"
+        assert __version__ == "0.23.0"

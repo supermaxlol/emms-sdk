@@ -2104,6 +2104,131 @@ def cmd_best_principle(args: argparse.Namespace) -> None:
             print(principle.summary())
 
 
+# ---------------------------------------------------------------------------
+# v0.23.0 commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_map_values(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    category = getattr(args, "category", None)
+    report = agent.map_values(category=category)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_values": report.total_values,
+            "dominant_category": report.dominant_category,
+            "mean_strength": report.mean_strength,
+            "values": [
+                {
+                    "id": v.id, "name": v.name,
+                    "category": v.category, "strength": v.strength,
+                    "description": v.description,
+                }
+                for v in report.values[:10]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_values_for_category(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.map_values()
+    values = agent.values_for_category(args.category)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "category": args.category,
+            "count": len(values),
+            "values": [
+                {"id": v.id, "name": v.name, "strength": v.strength}
+                for v in values
+            ],
+        }))
+    else:
+        if not values:
+            print(f"No values found in category '{args.category}'.")
+        else:
+            for v in values:
+                print(v.summary())
+
+
+def cmd_reason_morally(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    report = agent.reason_morally(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_assessed": report.total_assessed,
+            "dominant_framework_overall": report.dominant_framework_overall,
+            "mean_moral_weight": report.mean_moral_weight,
+            "framework_counts": report.framework_counts,
+            "assessments": [
+                {
+                    "memory_id": a.memory_id,
+                    "dominant_framework": a.dominant_framework,
+                    "moral_weight": a.moral_weight,
+                    "domain": a.domain,
+                }
+                for a in report.assessments[:8]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_detect_dilemmas(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    agent.reason_morally(domain=domain)
+    report = agent.detect_dilemmas(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_dilemmas": report.total_dilemmas,
+            "mean_tension": report.mean_tension,
+            "domains_affected": report.domains_affected,
+            "dilemmas": [
+                {
+                    "id": d.id, "domain": d.domain,
+                    "tension_score": d.tension_score,
+                    "framework_a": d.framework_a,
+                    "framework_b": d.framework_b,
+                    "resolution_strategies": d.resolution_strategies,
+                    "description": d.description,
+                }
+                for d in report.dilemmas[:5]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_most_tense_dilemma(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.reason_morally()
+    agent.detect_dilemmas()
+    dilemma = agent.most_tense_dilemma()
+    if getattr(args, "json", False):
+        if dilemma is None:
+            print(json.dumps({"found": False, "dilemma": None}))
+        else:
+            print(json.dumps({
+                "found": True,
+                "dilemma": {
+                    "id": dilemma.id, "domain": dilemma.domain,
+                    "tension_score": dilemma.tension_score,
+                    "framework_a": dilemma.framework_a,
+                    "framework_b": dilemma.framework_b,
+                    "resolution_strategies": dilemma.resolution_strategies,
+                    "description": dilemma.description,
+                },
+            }))
+    else:
+        if dilemma is None:
+            print("No dilemmas detected — run detect-dilemmas first.")
+        else:
+            print(dilemma.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -2896,6 +3021,37 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Return the abstract principle most relevant to a description.")
     p_bp.add_argument("description", help="Natural-language description to match against.")
     p_bp.set_defaults(func=cmd_best_principle)
+
+    # map-values
+    p_mv = sub.add_parser("map-values",
+                           help="Extract core values from memory via a 5-category value lexicon.")
+    p_mv.add_argument("--category", default=None,
+                      help="Restrict to this value category (epistemic|moral|aesthetic|instrumental|social).")
+    p_mv.set_defaults(func=cmd_map_values)
+
+    # values-for-category
+    p_vc = sub.add_parser("values-for-category",
+                           help="Return all mapped values in a specific category.")
+    p_vc.add_argument("category",
+                      help="One of: epistemic, moral, aesthetic, instrumental, social.")
+    p_vc.set_defaults(func=cmd_values_for_category)
+
+    # reason-morally
+    p_rm = sub.add_parser("reason-morally",
+                           help="Evaluate memories through consequentialist, deontological, and virtue frameworks.")
+    p_rm.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_rm.set_defaults(func=cmd_reason_morally)
+
+    # detect-dilemmas
+    p_dd = sub.add_parser("detect-dilemmas",
+                           help="Detect ethical tensions between conflicting moral imperatives.")
+    p_dd.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_dd.set_defaults(func=cmd_detect_dilemmas)
+
+    # most-tense-dilemma
+    p_mtd = sub.add_parser("most-tense-dilemma",
+                            help="Return the dilemma with the highest tension score.")
+    p_mtd.set_defaults(func=cmd_most_tense_dilemma)
 
     return parser
 
