@@ -1,5 +1,37 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.22.0: The Creative Mind
+- NoveltyDetector: memory novelty scoring against corpus centroid; builds
+  global token-document-frequency counter from all memory content; rarity
+  threshold = max(2, 10% of total items); novelty = fraction of a memory's
+  tokens that are rare in the corpus (0..1); NoveltyScore with memory_id,
+  content_excerpt, novelty, domain, rare_tokens; NoveltyReport sorted by
+  novelty descending; novelty_of returns 0.5 neutral if not yet assessed;
+  biological analogue: hippocampal novelty detection (Kumaran & Maguire 2007),
+  dopaminergic prediction-error signal (Schultz 1998), locus coeruleus
+  norepinephrine response; EMMS façades: assess_novelty, most_novel, novelty_of
+- ConceptInventor: cross-domain concept generation; per-domain rare tokens
+  (≤ 20% frequency); cross-pairs tokens from different domains; originality =
+  (1 − freq_a/max_freq) × 0.5 + (1 − freq_b/max_freq) × 0.5; template
+  description: "What if {a} (from {dom_a}) could {b}?"; InventedConcept IDs
+  prefixed "inv_"; InventionReport with domain_pairs, mean_originality;
+  concepts_for_domain; best_concept via Jaccard; biological analogue: divergent
+  thinking (Guilford 1967), default mode network (Beaty et al. 2016), conceptual
+  blending (Fauconnier & Turner 2002); EMMS façades: invent_concepts, best_concept
+- AbstractionEngine: episodic-to-principle lifting; recurring tokens (≥ 2
+  memories) scored by generality = count/n_domain_memories; min_generality
+  threshold; AbstractPrinciple with label, domain, description, generality_score,
+  mean_valence, mean_importance, source_memory_ids; IDs prefixed "abs_";
+  AbstractionReport sorted by generality descending; principles_for_domain;
+  best_principle via Jaccard; biological analogue: schema abstraction (Bartlett
+  1932), prototype theory (Rosch 1975), PFC hierarchical abstraction (Badre &
+  Frank 2012); EMMS façades: abstract_principles, principles_for_domain,
+  best_principle
+- MCP tools (5 new): emms_assess_novelty, emms_most_novel, emms_invent_concepts,
+  emms_abstract_principles, emms_best_principle (97 total)
+- CLI commands (5 new): assess-novelty, most-novel, invent-concepts,
+  abstract-principles, best-principle (101 total)
+
 v0.21.0: The Social Mind
 - PerspectiveTaker: Theory of Mind — extracts mental models of other agents from
   memory content; scans for belief/communication verbs (said, thinks, believes,
@@ -487,13 +519,16 @@ from emms.memory.self_model import SelfModel, Belief, SelfModelReport
 from emms.memory.causal import CausalMapper, CausalEdge, CausalPath, CausalReport
 from emms.memory.counterfactual import CounterfactualEngine, Counterfactual, CounterfactualReport
 from emms.memory.skills import SkillDistiller, DistilledSkill, SkillReport
+from emms.memory.novelty import NoveltyDetector, NoveltyScore, NoveltyReport
+from emms.memory.inventor import ConceptInventor, InventedConcept, InventionReport
+from emms.memory.abstraction import AbstractionEngine, AbstractPrinciple, AbstractionReport
 from emms.memory.perspective import PerspectiveTaker, AgentModel, PerspectiveReport
 from emms.memory.trust import TrustLedger, TrustScore, TrustReport
 from emms.memory.norms import NormExtractor, SocialNorm, NormReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.21.0"
+__version__ = "0.22.0"
 __all__ = [
     # Core
     "EMMS",
@@ -611,6 +646,16 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.22.0 additions
+    "NoveltyDetector",
+    "NoveltyScore",
+    "NoveltyReport",
+    "ConceptInventor",
+    "InventedConcept",
+    "InventionReport",
+    "AbstractionEngine",
+    "AbstractPrinciple",
+    "AbstractionReport",
     # v0.21.0 additions
     "PerspectiveTaker",
     "AgentModel",

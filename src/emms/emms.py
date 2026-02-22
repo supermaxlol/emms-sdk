@@ -3523,3 +3523,121 @@ class EMMS:
             List of :class:`SocialNorm` sorted by relevance (up to 5).
         """
         return self._get_norm_extractor().check_norm(behavior)
+
+    # ------------------------------------------------------------------
+    # v0.22.0 — NoveltyDetector
+    # ------------------------------------------------------------------
+
+    def _get_novelty_detector(self) -> "Any":
+        if not hasattr(self, "_novelty_detector"):
+            from emms.memory.novelty import NoveltyDetector
+            self._novelty_detector = NoveltyDetector(memory=self.memory)
+        return self._novelty_detector
+
+    def assess_novelty(self, domain: "Optional[str]" = None) -> "Any":
+        """Score all memories for novelty against the corpus centroid.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`NoveltyReport` with scores sorted by novelty descending.
+        """
+        return self._get_novelty_detector().assess(domain=domain)
+
+    def most_novel(self, n: int = 5) -> "Any":
+        """Return the n most novel memories from the last assessment.
+
+        Args:
+            n: Number of scores to return (default 5).
+
+        Returns:
+            List of :class:`NoveltyScore` sorted by novelty descending.
+        """
+        return self._get_novelty_detector().most_novel(n=n)
+
+    def novelty_of(self, memory_id: str) -> float:
+        """Return the novelty score for a specific memory.
+
+        Args:
+            memory_id: ID of the memory to query.
+
+        Returns:
+            Novelty score 0..1, or 0.5 (neutral) if not yet assessed.
+        """
+        return self._get_novelty_detector().novelty_of(memory_id)
+
+    # ------------------------------------------------------------------
+    # v0.22.0 — ConceptInventor
+    # ------------------------------------------------------------------
+
+    def _get_concept_inventor(self) -> "Any":
+        if not hasattr(self, "_concept_inventor"):
+            from emms.memory.inventor import ConceptInventor
+            self._concept_inventor = ConceptInventor(memory=self.memory)
+        return self._concept_inventor
+
+    def invent_concepts(self, n: int = 8) -> "Any":
+        """Generate novel cross-domain concepts from memory.
+
+        Args:
+            n: Maximum number of concepts to generate (default 8).
+
+        Returns:
+            :class:`InventionReport` with concepts sorted by originality.
+        """
+        return self._get_concept_inventor().invent(n=n)
+
+    def best_concept(self, goal_description: str) -> "Any":
+        """Return the invented concept most relevant to a goal description.
+
+        Args:
+            goal_description: Natural-language description of the goal.
+
+        Returns:
+            Best-matching :class:`InventedConcept`, or ``None`` if none.
+        """
+        return self._get_concept_inventor().best_concept(goal_description)
+
+    # ------------------------------------------------------------------
+    # v0.22.0 — AbstractionEngine
+    # ------------------------------------------------------------------
+
+    def _get_abstraction_engine(self) -> "Any":
+        if not hasattr(self, "_abstraction_engine"):
+            from emms.memory.abstraction import AbstractionEngine
+            self._abstraction_engine = AbstractionEngine(memory=self.memory)
+        return self._abstraction_engine
+
+    def abstract_principles(self, domain: "Optional[str]" = None) -> "Any":
+        """Extract abstract principles from episodic memories.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`AbstractionReport` with principles sorted by generality.
+        """
+        return self._get_abstraction_engine().abstract(domain=domain)
+
+    def principles_for_domain(self, domain: str) -> "Any":
+        """Return all abstract principles for a given domain.
+
+        Args:
+            domain: The domain to filter by.
+
+        Returns:
+            List of :class:`AbstractPrinciple` sorted by generality descending.
+        """
+        return self._get_abstraction_engine().principles_for_domain(domain)
+
+    def best_principle(self, description: str) -> "Any":
+        """Return the principle most relevant to a description.
+
+        Args:
+            description: Natural-language description to match against.
+
+        Returns:
+            Best-matching :class:`AbstractPrinciple`, or ``None`` if none.
+        """
+        return self._get_abstraction_engine().best_principle(description)

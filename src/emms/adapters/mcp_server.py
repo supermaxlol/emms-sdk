@@ -1158,6 +1158,58 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["behavior"],
         },
     },
+    # v0.22.0 tools
+    {
+        "name": "emms_assess_novelty",
+        "description": "Score all memories for novelty against the corpus centroid; returns memories ranked by how surprising/unusual they are.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_most_novel",
+        "description": "Return the n most novel memories from the last novelty assessment.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "default": 5, "description": "Number of memories to return (default 5)."},
+            },
+        },
+    },
+    {
+        "name": "emms_invent_concepts",
+        "description": "Generate novel cross-domain concepts by cross-pollinating rare tokens from different memory domains.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "default": 8, "description": "Maximum number of concepts to generate (default 8)."},
+            },
+        },
+    },
+    {
+        "name": "emms_abstract_principles",
+        "description": "Extract abstract principles from episodic memories by identifying recurring tokens within domains.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_best_principle",
+        "description": "Return the abstract principle most relevant to a natural-language description using Jaccard overlap.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "Natural-language description to match against."},
+            },
+            "required": ["description"],
+        },
+    },
 ]
 
 
@@ -2961,6 +3013,114 @@ class EMCPServer:
             ],
         }
 
+    # v0.22.0 handlers
+
+    def _handle_assess_novelty(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        report = self.emms.assess_novelty(domain=domain)
+        return {
+            "ok": True,
+            "total_assessed": report.total_assessed,
+            "high_novelty_count": report.high_novelty_count,
+            "mean_novelty": report.mean_novelty,
+            "scores": [
+                {
+                    "memory_id": s.memory_id,
+                    "novelty": s.novelty,
+                    "domain": s.domain,
+                    "rare_tokens": s.rare_tokens[:5],
+                    "content_excerpt": s.content_excerpt[:60],
+                }
+                for s in report.scores[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_most_novel(self, args: dict[str, Any]) -> dict[str, Any]:
+        n = int(args.get("n", 5))
+        self.emms.assess_novelty()
+        scores = self.emms.most_novel(n=n)
+        return {
+            "ok": True,
+            "count": len(scores),
+            "scores": [
+                {
+                    "memory_id": s.memory_id,
+                    "novelty": s.novelty,
+                    "domain": s.domain,
+                    "rare_tokens": s.rare_tokens[:5],
+                    "content_excerpt": s.content_excerpt[:60],
+                }
+                for s in scores
+            ],
+        }
+
+    def _handle_invent_concepts(self, args: dict[str, Any]) -> dict[str, Any]:
+        n = int(args.get("n", 8))
+        report = self.emms.invent_concepts(n=n)
+        return {
+            "ok": True,
+            "total_concepts": report.total_concepts,
+            "mean_originality": report.mean_originality,
+            "domain_pairs": [list(p) for p in report.domain_pairs[:5]],
+            "concepts": [
+                {
+                    "id": c.id,
+                    "token_a": c.token_a,
+                    "domain_a": c.domain_a,
+                    "token_b": c.token_b,
+                    "domain_b": c.domain_b,
+                    "originality_score": c.originality_score,
+                    "description": c.description[:120],
+                }
+                for c in report.concepts[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_abstract_principles(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        report = self.emms.abstract_principles(domain=domain)
+        return {
+            "ok": True,
+            "total_principles": report.total_principles,
+            "mean_generality": report.mean_generality,
+            "domains_abstracted": report.domains_abstracted,
+            "principles": [
+                {
+                    "id": p.id,
+                    "label": p.label,
+                    "domain": p.domain,
+                    "generality_score": p.generality_score,
+                    "mean_valence": p.mean_valence,
+                    "mean_importance": p.mean_importance,
+                    "description": p.description[:120],
+                }
+                for p in report.principles[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_best_principle(self, args: dict[str, Any]) -> dict[str, Any]:
+        description = args.get("description", "")
+        self.emms.abstract_principles()
+        principle = self.emms.best_principle(description)
+        if principle is None:
+            return {"ok": True, "found": False, "principle": None}
+        return {
+            "ok": True,
+            "found": True,
+            "principle": {
+                "id": principle.id,
+                "label": principle.label,
+                "domain": principle.domain,
+                "generality_score": principle.generality_score,
+                "mean_valence": principle.mean_valence,
+                "mean_importance": principle.mean_importance,
+                "description": principle.description,
+            },
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -3070,4 +3230,10 @@ class EMCPServer:
         "emms_compute_trust": _handle_compute_trust,
         "emms_extract_norms": _handle_extract_norms,
         "emms_check_norm": _handle_check_norm,
+        # v0.22.0 tools
+        "emms_assess_novelty": _handle_assess_novelty,
+        "emms_most_novel": _handle_most_novel,
+        "emms_invent_concepts": _handle_invent_concepts,
+        "emms_abstract_principles": _handle_abstract_principles,
+        "emms_best_principle": _handle_best_principle,
     }

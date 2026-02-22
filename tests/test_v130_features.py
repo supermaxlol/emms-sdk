@@ -645,7 +645,7 @@ class TestEMMSContextualFacade:
 class TestMCPv130Tools:
     def test_mcp_tool_count(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
-        assert len(_TOOL_DEFINITIONS) == 92
+        assert len(_TOOL_DEFINITIONS) == 97
 
     def test_mcp_has_metacognition_report(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
@@ -719,7 +719,7 @@ class TestMCPv130Tools:
 class TestV130Exports:
     def test_version(self):
         import emms
-        assert emms.__version__ == "0.21.0"
+        assert emms.__version__ == "0.22.0"
 
     def test_export_metacognition_engine(self):
         from emms import MetacognitionEngine

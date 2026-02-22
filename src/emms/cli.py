@@ -2000,6 +2000,110 @@ def cmd_check_norm(args: argparse.Namespace) -> None:
             print(n.summary())
 
 
+# v0.22.0 commands
+
+def cmd_assess_novelty(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.assess_novelty(domain=getattr(args, "domain", None))
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_assessed": report.total_assessed,
+            "high_novelty_count": report.high_novelty_count,
+            "mean_novelty": report.mean_novelty,
+            "scores": [
+                {"memory_id": s.memory_id, "novelty": s.novelty,
+                 "domain": s.domain, "rare_tokens": s.rare_tokens[:5]}
+                for s in report.scores[:8]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_most_novel(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.assess_novelty()
+    scores = agent.most_novel(n=getattr(args, "n", 5))
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "count": len(scores),
+            "scores": [
+                {"memory_id": s.memory_id, "novelty": s.novelty,
+                 "domain": s.domain, "rare_tokens": s.rare_tokens[:5]}
+                for s in scores
+            ],
+        }))
+    else:
+        if not scores:
+            print("No novelty scores available — run assess-novelty first.")
+        for s in scores:
+            print(s.summary())
+
+
+def cmd_invent_concepts(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.invent_concepts(n=getattr(args, "n", 8))
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_concepts": report.total_concepts,
+            "mean_originality": report.mean_originality,
+            "concepts": [
+                {"id": c.id, "token_a": c.token_a, "domain_a": c.domain_a,
+                 "token_b": c.token_b, "domain_b": c.domain_b,
+                 "originality_score": c.originality_score,
+                 "description": c.description}
+                for c in report.concepts
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_abstract_principles(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.abstract_principles(domain=getattr(args, "domain", None))
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_principles": report.total_principles,
+            "mean_generality": report.mean_generality,
+            "domains_abstracted": report.domains_abstracted,
+            "principles": [
+                {"id": p.id, "label": p.label, "domain": p.domain,
+                 "generality_score": p.generality_score,
+                 "mean_valence": p.mean_valence,
+                 "mean_importance": p.mean_importance,
+                 "description": p.description}
+                for p in report.principles
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_best_principle(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.abstract_principles()
+    principle = agent.best_principle(args.description)
+    if getattr(args, "json", False):
+        if principle is None:
+            print(json.dumps({"found": False, "principle": None}))
+        else:
+            print(json.dumps({
+                "found": True,
+                "principle": {
+                    "id": principle.id, "label": principle.label,
+                    "domain": principle.domain,
+                    "generality_score": principle.generality_score,
+                    "description": principle.description,
+                },
+            }))
+    else:
+        if principle is None:
+            print("No principles found — run abstract-principles first.")
+        else:
+            print(principle.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -2760,6 +2864,38 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Find norms most relevant to a described behaviour.")
     p_cn.add_argument("behavior", help="Natural-language behaviour description.")
     p_cn.set_defaults(func=cmd_check_norm)
+
+    # v0.22.0 commands
+
+    # assess-novelty
+    p_an = sub.add_parser("assess-novelty",
+                           help="Score all memories for novelty against the corpus centroid.")
+    p_an.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_an.set_defaults(func=cmd_assess_novelty)
+
+    # most-novel
+    p_mn = sub.add_parser("most-novel",
+                           help="Return the n most novel memories from the last assessment.")
+    p_mn.add_argument("--n", type=int, default=5, help="Number of memories to return.")
+    p_mn.set_defaults(func=cmd_most_novel)
+
+    # invent-concepts
+    p_ic = sub.add_parser("invent-concepts",
+                           help="Generate novel cross-domain concepts from memory.")
+    p_ic.add_argument("--n", type=int, default=8, help="Maximum number of concepts.")
+    p_ic.set_defaults(func=cmd_invent_concepts)
+
+    # abstract-principles
+    p_ap = sub.add_parser("abstract-principles",
+                           help="Extract abstract principles from episodic memories.")
+    p_ap.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_ap.set_defaults(func=cmd_abstract_principles)
+
+    # best-principle
+    p_bp = sub.add_parser("best-principle",
+                           help="Return the abstract principle most relevant to a description.")
+    p_bp.add_argument("description", help="Natural-language description to match against.")
+    p_bp.set_defaults(func=cmd_best_principle)
 
     return parser
 
