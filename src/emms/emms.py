@@ -2794,3 +2794,113 @@ class EMMS:
         if not hasattr(self, "_source_monitor"):
             return {}
         return self._source_monitor.source_profile()
+
+    # ------------------------------------------------------------------
+    # v0.16.0 — The Curious Mind
+    # ------------------------------------------------------------------
+
+    def curiosity_scan(self, domain: "Optional[str]" = None) -> "Any":
+        """Scan memory for knowledge gaps and generate exploration goals.
+
+        Args:
+            domain: Restrict scan to one domain (``None`` = all domains).
+
+        Returns:
+            :class:`CuriosityReport` with goals sorted by urgency.
+        """
+        from emms.memory.curiosity import CuriosityEngine
+        metacog = getattr(self, "_metacognition", None)
+        engine = CuriosityEngine(memory=self.memory, metacognition_engine=metacog)
+        self._curiosity_engine = engine
+        return engine.scan(domain=domain)
+
+    def exploration_goals(self) -> "Any":
+        """Return all pending (un-explored) curiosity goals.
+
+        Returns:
+            List of :class:`ExplorationGoal` sorted by urgency descending.
+        """
+        if not hasattr(self, "_curiosity_engine"):
+            self.curiosity_scan()
+        return self._curiosity_engine.pending_goals()
+
+    def mark_explored(self, goal_id: str) -> bool:
+        """Mark an exploration goal as fulfilled.
+
+        Args:
+            goal_id: ID of the goal to mark as explored.
+
+        Returns:
+            ``True`` if the goal was found and marked; ``False`` otherwise.
+        """
+        if not hasattr(self, "_curiosity_engine"):
+            return False
+        return self._curiosity_engine.mark_explored(goal_id)
+
+    def revise_beliefs(
+        self,
+        new_memory_id: "Optional[str]" = None,
+        domain: "Optional[str]" = None,
+        max_revisions: int = 8,
+    ) -> "Any":
+        """Detect and resolve contradictions in the memory store.
+
+        Args:
+            new_memory_id: Check only this memory against all others
+                           (``None`` = full pairwise scan).
+            domain:        Restrict scan to one domain (``None`` = all).
+            max_revisions: Maximum number of revisions to perform.
+
+        Returns:
+            :class:`RevisionReport` describing each revision action.
+        """
+        from emms.memory.belief_revision import BeliefReviser
+        if not hasattr(self, "_belief_reviser"):
+            self._belief_reviser = BeliefReviser(memory=self.memory)
+        return self._belief_reviser.revise(
+            new_memory_id=new_memory_id,
+            domain=domain,
+            max_revisions=max_revisions,
+        )
+
+    def revision_history(self) -> "Any":
+        """Return all belief revision records from this session.
+
+        Returns:
+            List of :class:`RevisionRecord` sorted newest-first.
+        """
+        if not hasattr(self, "_belief_reviser"):
+            return []
+        return self._belief_reviser.revision_history()
+
+    def memory_decay_report(self, domain: "Optional[str]" = None) -> "Any":
+        """Compute Ebbinghaus retention for all memories (read-only).
+
+        Args:
+            domain: Restrict to one domain (``None`` = all).
+
+        Returns:
+            :class:`DecayReport` with per-memory retention values.
+        """
+        from emms.memory.decay import MemoryDecay
+        engine = MemoryDecay(memory=self.memory)
+        return engine.decay(domain=domain)
+
+    def apply_memory_decay(
+        self,
+        domain: "Optional[str]" = None,
+        prune: bool = False,
+    ) -> "Any":
+        """Apply Ebbinghaus forgetting curve to memory strengths.
+
+        Args:
+            domain: Restrict to one domain (``None`` = all).
+            prune:  Remove memories whose post-decay strength falls
+                    below the prune threshold (default ``False``).
+
+        Returns:
+            :class:`DecayReport` describing every change made.
+        """
+        from emms.memory.decay import MemoryDecay
+        engine = MemoryDecay(memory=self.memory)
+        return engine.apply_decay(domain=domain, prune=prune)

@@ -904,7 +904,7 @@ class TestMCPV090Tools:
     def test_total_tool_count(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
         # v0.9.0 adds 5 more tools to the 27 from v0.8.0 = 32 total
-        assert len(_TOOL_DEFINITIONS) == 62
+        assert len(_TOOL_DEFINITIONS) == 67
 
     def test_v090_tool_names(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
@@ -969,7 +969,7 @@ class TestMCPV090Tools:
 class TestV090Exports:
     def test_version(self):
         import emms
-        assert emms.__version__ == "0.15.0"
+        assert emms.__version__ == "0.16.0"
 
     def test_compaction_index_exported(self):
         from emms import CompactionIndex

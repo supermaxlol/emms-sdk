@@ -1417,6 +1417,96 @@ def cmd_tag_source(args: argparse.Namespace) -> None:
         print(tag.summary())
 
 
+# v0.16.0 commands
+
+
+def cmd_curiosity_report(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.curiosity_scan(domain=getattr(args, "domain", None) or None)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_domains_scanned": report.total_domains_scanned,
+            "goals_generated": report.goals_generated,
+            "top_curious_domains": report.top_curious_domains,
+            "goals": [
+                {"id": g.id, "question": g.question, "domain": g.domain,
+                 "urgency": g.urgency, "gap_type": g.gap_type}
+                for g in report.goals
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_explore_goals(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    goals = agent.exploration_goals()
+    if getattr(args, "json", False):
+        print(json.dumps([
+            {"id": g.id, "question": g.question, "domain": g.domain,
+             "urgency": g.urgency, "gap_type": g.gap_type}
+            for g in goals
+        ]))
+    else:
+        if not goals:
+            print("No pending exploration goals.")
+        for g in goals:
+            print(g.summary())
+
+
+def cmd_revise_beliefs(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.revise_beliefs(
+        new_memory_id=getattr(args, "memory_id", None) or None,
+        domain=getattr(args, "domain", None) or None,
+        max_revisions=getattr(args, "max_revisions", 8),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_checked": report.total_checked,
+            "conflicts_found": report.conflicts_found,
+            "revisions_made": report.revisions_made,
+            "records": [
+                {"id": r.id, "revision_type": r.revision_type,
+                 "conflict_score": r.conflict_score}
+                for r in report.records
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_decay_report(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.memory_decay_report(domain=getattr(args, "domain", None) or None)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_processed": report.total_processed,
+            "decayed": report.decayed,
+            "mean_retention": report.mean_retention,
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_apply_decay(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.apply_memory_decay(
+        domain=getattr(args, "domain", None) or None,
+        prune=getattr(args, "prune", False),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_processed": report.total_processed,
+            "decayed": report.decayed,
+            "pruned": report.pruned,
+            "mean_retention": report.mean_retention,
+            "applied": report.applied,
+        }))
+    else:
+        print(report.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -1968,6 +2058,43 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Confidence in this attribution (default 0.8).")
     p_ts.add_argument("--note", default="", help="Optional free-text provenance note.")
     p_ts.set_defaults(func=cmd_tag_source)
+
+    # v0.16.0 commands
+
+    # curiosity-report
+    p_cr = sub.add_parser("curiosity-report",
+                           help="Scan memory for knowledge gaps and generate exploration goals.")
+    p_cr.add_argument("--domain", default=None, help="Restrict scan to one domain.")
+    p_cr.set_defaults(func=cmd_curiosity_report)
+
+    # explore-goals
+    p_eg = sub.add_parser("explore-goals",
+                           help="List all pending curiosity-driven exploration goals.")
+    p_eg.set_defaults(func=cmd_explore_goals)
+
+    # revise-beliefs
+    p_rb = sub.add_parser("revise-beliefs",
+                           help="Detect and resolve contradictions via AGM belief revision.")
+    p_rb.add_argument("--memory-id", default=None, dest="memory_id",
+                      help="Check only this memory against others (omit for full scan).")
+    p_rb.add_argument("--domain", default=None, help="Restrict scan to one domain.")
+    p_rb.add_argument("--max-revisions", type=int, default=8, dest="max_revisions",
+                      help="Maximum revisions to perform (default 8).")
+    p_rb.set_defaults(func=cmd_revise_beliefs)
+
+    # decay-report
+    p_dec = sub.add_parser("decay-report",
+                            help="Compute Ebbinghaus forgetting retention for all memories (read-only).")
+    p_dec.add_argument("--domain", default=None, help="Restrict report to one domain.")
+    p_dec.set_defaults(func=cmd_decay_report)
+
+    # apply-decay
+    p_ad = sub.add_parser("apply-decay",
+                           help="Apply Ebbinghaus forgetting curve to memory strengths.")
+    p_ad.add_argument("--domain", default=None, help="Restrict decay to one domain.")
+    p_ad.add_argument("--prune", action="store_true",
+                      help="Remove memories below the prune threshold after decay.")
+    p_ad.set_defaults(func=cmd_apply_decay)
 
     return parser
 

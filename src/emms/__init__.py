@@ -1,5 +1,27 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.16.0: The Curious Mind
+- CuriosityEngine: epistemic curiosity and knowledge-gap detection; scans memory
+  for sparse/uncertain/contradictory/novel domains; ranks gaps by urgency; generates
+  ExplorationGoal objects (question, domain, urgency, gap_type, supporting_memory_ids);
+  integrates with MetacognitionEngine for accurate confidence; CuriosityReport with
+  goals sorted by urgency and top_curious_domains; EMMS façades: curiosity_scan,
+  exploration_goals, mark_explored
+- BeliefReviser: AGM-inspired belief revision when contradictions arise; detects
+  conflicts via token Jaccard overlap + opposing emotional valence; three strategies:
+  merge (synthesise reconciliation memory), supersede (weaken losing belief),
+  flag (mark for review); RevisionReport with per-revision records; EMMS façades:
+  revise_beliefs, revision_history
+- MemoryDecay: Ebbinghaus forgetting curve (R = e^{-t/S}) applied to memory strength;
+  stability S = base_stability + retrieval_boost × access_count (spacing effect);
+  decay() computes only; apply_decay() mutates strength + optional pruning below
+  prune_threshold; DecayReport with per-item retention; EMMS façades:
+  memory_decay_report, apply_memory_decay
+- MCP tools (5 new): emms_curiosity_report, emms_exploration_goals,
+  emms_revise_beliefs, emms_decay_report, emms_apply_decay (67 total)
+- CLI commands (5 new): curiosity-report, explore-goals, revise-beliefs,
+  decay-report, apply-decay (71 total)
+
 v0.15.0: The Reflective Mind
 - ReflectionEngine: structured self-review closing the learning loop; reviews
   high-importance memories and recent episodes; groups by keyword clusters;
@@ -281,10 +303,13 @@ from emms.memory.forgetting import MotivatedForgetting, ForgettingResult, Forget
 from emms.memory.reflection import ReflectionEngine, Lesson, ReflectionReport
 from emms.memory.narrative import NarrativeWeaver, NarrativeSegment, NarrativeThread, NarrativeReport
 from emms.memory.source_monitor import SourceMonitor, SourceTag, SourceAuditEntry, SourceReport
+from emms.memory.curiosity import CuriosityEngine, ExplorationGoal, CuriosityReport
+from emms.memory.belief_revision import BeliefReviser, RevisionRecord, RevisionReport
+from emms.memory.decay import MemoryDecay, DecayRecord, DecayReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 __all__ = [
     # Core
     "EMMS",
@@ -402,6 +427,16 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.16.0 additions
+    "CuriosityEngine",
+    "ExplorationGoal",
+    "CuriosityReport",
+    "BeliefReviser",
+    "RevisionRecord",
+    "RevisionReport",
+    "MemoryDecay",
+    "DecayRecord",
+    "DecayReport",
     # v0.15.0 additions
     "ReflectionEngine",
     "Lesson",
