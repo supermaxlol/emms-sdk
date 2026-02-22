@@ -1,5 +1,37 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.24.0: The Wise Mind
+- BiasDetector: 10 cognitive bias types detected via indicator vocabulary (confirmation_bias,
+  availability_heuristic, sunk_cost, optimism_bias, negativity_bias, hindsight_bias,
+  overconfidence, in_group_bias, anchoring, framing_effect); strength = (n_affected /
+  n_total) × mean_importance; BiasInstance IDs prefixed "bia_"; BiasReport with
+  dominant_bias, mean_strength; biases_of_type, most_pervasive; biological analogue:
+  dual-process theory (Kahneman 2011), Tversky & Kahneman 1974, motivated reasoning
+  (Kunda 1990), prefrontal debiasing (Fleming & Dolan 2012); EMMS façades: map_biases,
+  biases_of_type, most_pervasive_bias
+- WisdomSynthesizer: cross-system synthesis for a free-text query; Jaccard-similarity
+  top-k memory retrieval; four dimensions: value signals (VALUE_TOKENS lexicon), moral
+  patterns (C/D/V keyword counts), causal patterns (source→verb→target triples),
+  recurring principles (≥2 doc-frequency tokens); confidence = n_active_dimensions/4;
+  WisdomGuidance IDs prefixed "wis_"; template synthesis string; WisdomReport with
+  dimensions_used, coverage_score; biological analogue: prefrontal-limbic integration
+  (Meeks & Jeste 2009), DMN synthesis (Andrews-Hanna 2012), phronesis (Aristotle);
+  EMMS façades: synthesize_wisdom(query)
+- EpistemicEvolution: domain-level knowledge growth tracking; splits memories into
+  early/recent halves by timestamp; growth_rate = net new vocabulary gain (−1..1);
+  consolidation_score = Jaccard token overlap (0..1); knowledge_density = memories/day
+  normalised 0..1; recent_themes = top 5 tokens in recent half; knowledge_gaps =
+  domains with < min_memories; KnowledgeDomain per domain; EvolutionReport sorted by
+  density desc with most_active_domain, most_consolidated_domain, overall_growth_rate;
+  biological analogue: hippocampal-neocortical transfer (McClelland et al. 1995), power
+  law of practice (Newell & Rosenbloom 1981), expert-novice restructuring (Chi et al.
+  1982); EMMS façades: evolve_knowledge, domain_knowledge_profile, knowledge_gaps,
+  most_active_domain, most_consolidated_domain
+- MCP tools (5 new): emms_detect_biases, emms_most_pervasive_bias,
+  emms_synthesize_wisdom, emms_evolve_knowledge, emms_knowledge_gaps (107 total)
+- CLI commands (5 new): detect-biases, most-pervasive-bias, synthesize-wisdom,
+  evolve-knowledge, knowledge-gaps (111 total)
+
 v0.23.0: The Moral Mind
 - ValueMapper: core value extraction from memory via 5-category value lexicon
   (epistemic, moral, aesthetic, instrumental, social); strength = mean_importance
@@ -556,13 +588,16 @@ from emms.memory.abstraction import AbstractionEngine, AbstractPrinciple, Abstra
 from emms.memory.values import ValueMapper, MappedValue, ValueReport
 from emms.memory.moral import MoralReasoner, MoralAssessment, MoralReport
 from emms.memory.dilemma import DilemmaEngine, EthicalDilemma, DilemmaReport
+from emms.memory.bias import BiasDetector, BiasInstance, BiasReport
+from emms.memory.wisdom import WisdomSynthesizer, WisdomGuidance, WisdomReport
+from emms.memory.epistemic_evolution import EpistemicEvolution, KnowledgeDomain, EvolutionReport
 from emms.memory.perspective import PerspectiveTaker, AgentModel, PerspectiveReport
 from emms.memory.trust import TrustLedger, TrustScore, TrustReport
 from emms.memory.norms import NormExtractor, SocialNorm, NormReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.23.0"
+__version__ = "0.24.0"
 __all__ = [
     # Core
     "EMMS",
@@ -680,6 +715,16 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.24.0 additions
+    "BiasDetector",
+    "BiasInstance",
+    "BiasReport",
+    "WisdomSynthesizer",
+    "WisdomGuidance",
+    "WisdomReport",
+    "EpistemicEvolution",
+    "KnowledgeDomain",
+    "EvolutionReport",
     # v0.23.0 additions
     "ValueMapper",
     "MappedValue",

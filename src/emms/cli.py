@@ -2229,6 +2229,117 @@ def cmd_most_tense_dilemma(args: argparse.Namespace) -> None:
             print(dilemma.summary())
 
 
+# ---------------------------------------------------------------------------
+# v0.24.0 commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_detect_biases(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    report = agent.map_biases(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_biases": report.total_biases,
+            "dominant_bias": report.dominant_bias,
+            "mean_strength": report.mean_strength,
+            "biases": [
+                {
+                    "id": b.id, "name": b.name, "display_name": b.display_name,
+                    "strength": b.strength, "description": b.description,
+                    "affected_memory_ids": b.affected_memory_ids,
+                }
+                for b in report.biases
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_most_pervasive_bias(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.map_biases()
+    bias = agent.most_pervasive_bias()
+    if getattr(args, "json", False):
+        if bias is None:
+            print(json.dumps({"found": False, "bias": None}))
+        else:
+            print(json.dumps({
+                "found": True,
+                "bias": {
+                    "id": bias.id, "name": bias.name, "display_name": bias.display_name,
+                    "strength": bias.strength, "description": bias.description,
+                },
+            }))
+    else:
+        if bias is None:
+            print("No biases detected — run detect-biases first.")
+        else:
+            print(bias.summary())
+
+
+def cmd_synthesize_wisdom(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    query = args.query
+    report = agent.synthesize_wisdom(query=query)
+    if getattr(args, "json", False):
+        g = report.guidance
+        print(json.dumps({
+            "query": report.query,
+            "dimensions_used": report.dimensions_used,
+            "coverage_score": report.coverage_score,
+            "guidance": {
+                "id": g.id,
+                "relevant_values": g.relevant_values,
+                "moral_considerations": g.moral_considerations,
+                "causal_insights": g.causal_insights,
+                "applicable_principles": g.applicable_principles,
+                "synthesis": g.synthesis,
+                "confidence": g.confidence,
+            },
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_evolve_knowledge(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    report = agent.evolve_knowledge(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_domains": report.total_domains,
+            "most_active_domain": report.most_active_domain,
+            "most_consolidated_domain": report.most_consolidated_domain,
+            "overall_growth_rate": report.overall_growth_rate,
+            "knowledge_gaps": report.knowledge_gaps,
+            "domains": [
+                {
+                    "domain": kd.domain, "memory_count": kd.memory_count,
+                    "growth_rate": kd.growth_rate,
+                    "consolidation_score": kd.consolidation_score,
+                    "knowledge_density": kd.knowledge_density,
+                    "recent_themes": kd.recent_themes,
+                }
+                for kd in report.domains
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_knowledge_gaps(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    gaps = agent.knowledge_gaps()
+    if getattr(args, "json", False):
+        print(json.dumps({"knowledge_gaps": gaps, "count": len(gaps)}))
+    else:
+        if gaps:
+            print(f"Knowledge gaps ({len(gaps)}): {', '.join(gaps)}")
+        else:
+            print("No knowledge gaps detected.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -3052,6 +3163,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_mtd = sub.add_parser("most-tense-dilemma",
                             help="Return the dilemma with the highest tension score.")
     p_mtd.set_defaults(func=cmd_most_tense_dilemma)
+
+    # v0.24.0 commands
+    # detect-biases
+    p_db = sub.add_parser("detect-biases",
+                           help="Detect cognitive biases in accumulated memory.")
+    p_db.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_db.set_defaults(func=cmd_detect_biases)
+
+    # most-pervasive-bias
+    p_mpb = sub.add_parser("most-pervasive-bias",
+                            help="Return the bias with the highest strength score.")
+    p_mpb.set_defaults(func=cmd_most_pervasive_bias)
+
+    # synthesize-wisdom
+    p_sw = sub.add_parser("synthesize-wisdom",
+                           help="Synthesise practical guidance from memory for a query.")
+    p_sw.add_argument("query", help="The question or goal to synthesise guidance for.")
+    p_sw.set_defaults(func=cmd_synthesize_wisdom)
+
+    # evolve-knowledge
+    p_ek = sub.add_parser("evolve-knowledge",
+                           help="Track knowledge growth and consolidation across domains.")
+    p_ek.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_ek.set_defaults(func=cmd_evolve_knowledge)
+
+    # knowledge-gaps
+    p_kg = sub.add_parser("knowledge-gaps",
+                           help="Return domains with fewer memories than the gap threshold.")
+    p_kg.set_defaults(func=cmd_knowledge_gaps)
 
     return parser
 

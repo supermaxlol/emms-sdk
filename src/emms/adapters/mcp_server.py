@@ -1260,6 +1260,54 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    # v0.24.0 tools
+    {
+        "name": "emms_detect_biases",
+        "description": "Detect cognitive biases in accumulated memory — scans 10 bias types (confirmation, availability, sunk_cost, optimism, negativity, hindsight, overconfidence, in_group, anchoring, framing) and returns strength scores.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_most_pervasive_bias",
+        "description": "Return the cognitive bias with the highest strength score from the last detect_biases call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "emms_synthesize_wisdom",
+        "description": "Synthesise practical guidance for a query from memory using four dimensions: value signals, moral patterns, causal patterns, and recurring principles.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The question or goal to synthesise guidance for."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "emms_evolve_knowledge",
+        "description": "Track how knowledge has grown and consolidated across domains — returns growth_rate, consolidation_score, and knowledge_density per domain.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_knowledge_gaps",
+        "description": "Return domains with fewer memories than the min_memories threshold — domains where knowledge is sparse.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -3284,6 +3332,99 @@ class EMCPServer:
             },
         }
 
+    # ------------------------------------------------------------------
+    # v0.24.0 handlers
+    # ------------------------------------------------------------------
+
+    def _handle_detect_biases(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain") or None
+        report = self.emms.map_biases(domain=domain)
+        return {
+            "ok": True,
+            "total_biases": report.total_biases,
+            "dominant_bias": report.dominant_bias,
+            "mean_strength": report.mean_strength,
+            "duration_seconds": report.duration_seconds,
+            "biases": [
+                {
+                    "id": b.id,
+                    "name": b.name,
+                    "display_name": b.display_name,
+                    "strength": b.strength,
+                    "description": b.description,
+                    "affected_memory_ids": b.affected_memory_ids,
+                }
+                for b in report.biases
+            ],
+        }
+
+    def _handle_most_pervasive_bias(self, args: dict[str, Any]) -> dict[str, Any]:
+        self.emms.map_biases()
+        bias = self.emms.most_pervasive_bias()
+        if bias is None:
+            return {"ok": True, "found": False, "bias": None}
+        return {
+            "ok": True,
+            "found": True,
+            "bias": {
+                "id": bias.id,
+                "name": bias.name,
+                "display_name": bias.display_name,
+                "strength": bias.strength,
+                "description": bias.description,
+                "affected_memory_ids": bias.affected_memory_ids,
+            },
+        }
+
+    def _handle_synthesize_wisdom(self, args: dict[str, Any]) -> dict[str, Any]:
+        query = args.get("query", "")
+        report = self.emms.synthesize_wisdom(query=query)
+        g = report.guidance
+        return {
+            "ok": True,
+            "query": report.query,
+            "dimensions_used": report.dimensions_used,
+            "coverage_score": report.coverage_score,
+            "duration_seconds": report.duration_seconds,
+            "guidance": {
+                "id": g.id,
+                "relevant_values": g.relevant_values,
+                "moral_considerations": g.moral_considerations,
+                "causal_insights": g.causal_insights,
+                "applicable_principles": g.applicable_principles,
+                "synthesis": g.synthesis,
+                "confidence": g.confidence,
+            },
+        }
+
+    def _handle_evolve_knowledge(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain") or None
+        report = self.emms.evolve_knowledge(domain=domain)
+        return {
+            "ok": True,
+            "total_domains": report.total_domains,
+            "most_active_domain": report.most_active_domain,
+            "most_consolidated_domain": report.most_consolidated_domain,
+            "overall_growth_rate": report.overall_growth_rate,
+            "knowledge_gaps": report.knowledge_gaps,
+            "duration_seconds": report.duration_seconds,
+            "domains": [
+                {
+                    "domain": kd.domain,
+                    "memory_count": kd.memory_count,
+                    "growth_rate": kd.growth_rate,
+                    "consolidation_score": kd.consolidation_score,
+                    "knowledge_density": kd.knowledge_density,
+                    "recent_themes": kd.recent_themes,
+                }
+                for kd in report.domains
+            ],
+        }
+
+    def _handle_knowledge_gaps(self, args: dict[str, Any]) -> dict[str, Any]:
+        gaps = self.emms.knowledge_gaps()
+        return {"ok": True, "knowledge_gaps": gaps, "count": len(gaps)}
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -3405,4 +3546,10 @@ class EMCPServer:
         "emms_reason_morally": _handle_reason_morally,
         "emms_detect_dilemmas": _handle_detect_dilemmas,
         "emms_most_tense_dilemma": _handle_most_tense_dilemma,
+        # v0.24.0 tools
+        "emms_detect_biases": _handle_detect_biases,
+        "emms_most_pervasive_bias": _handle_most_pervasive_bias,
+        "emms_synthesize_wisdom": _handle_synthesize_wisdom,
+        "emms_evolve_knowledge": _handle_evolve_knowledge,
+        "emms_knowledge_gaps": _handle_knowledge_gaps,
     }

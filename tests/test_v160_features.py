@@ -710,7 +710,7 @@ class TestMCPV160:
     """Tests for MCP tool count and new tool callability."""
 
     def test_tool_count_67(self):
-        assert len(_TOOL_DEFINITIONS) == 102
+        assert len(_TOOL_DEFINITIONS) == 107
 
     def test_all_tool_names_unique(self):
         names = [t["name"] for t in _TOOL_DEFINITIONS]
@@ -778,7 +778,7 @@ class TestV160Exports:
 
     def test_version_string(self):
         import emms
-        assert emms.__version__ == "0.23.0"
+        assert emms.__version__ == "0.24.0"
 
     def test_curiosity_engine_exported(self):
         from emms import CuriosityEngine

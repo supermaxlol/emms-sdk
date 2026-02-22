@@ -3769,3 +3769,124 @@ class EMMS:
             Most tense :class:`EthicalDilemma`, or ``None`` if none detected.
         """
         return self._get_dilemma_engine().most_tense_dilemma()
+
+    # ------------------------------------------------------------------
+    # v0.24.0 — BiasDetector
+    # ------------------------------------------------------------------
+
+    def _get_bias_detector(self) -> "Any":
+        if not hasattr(self, "_bias_detector"):
+            from emms.memory.bias import BiasDetector
+            self._bias_detector = BiasDetector(memory=self.memory)
+        return self._bias_detector
+
+    def map_biases(self, domain: "Optional[str]" = None) -> "Any":
+        """Detect cognitive biases in accumulated memory.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`BiasReport` with biases sorted by strength descending.
+        """
+        return self._get_bias_detector().detect(domain=domain)
+
+    def biases_of_type(self, bias_type: str) -> "Any":
+        """Return detected biases of a specific type.
+
+        Args:
+            bias_type: One of the 10 bias type names (e.g. "confirmation_bias").
+
+        Returns:
+            List of :class:`BiasInstance` matching that type.
+        """
+        return self._get_bias_detector().biases_of_type(bias_type)
+
+    def most_pervasive_bias(self) -> "Any":
+        """Return the bias with the highest strength, or ``None``.
+
+        Returns:
+            Most pervasive :class:`BiasInstance`, or ``None`` if none detected.
+        """
+        return self._get_bias_detector().most_pervasive()
+
+    # ------------------------------------------------------------------
+    # v0.24.0 — WisdomSynthesizer
+    # ------------------------------------------------------------------
+
+    def _get_wisdom_synthesizer(self) -> "Any":
+        if not hasattr(self, "_wisdom_synthesizer"):
+            from emms.memory.wisdom import WisdomSynthesizer
+            self._wisdom_synthesizer = WisdomSynthesizer(memory=self.memory)
+        return self._wisdom_synthesizer
+
+    def synthesize_wisdom(self, query: str) -> "Any":
+        """Synthesise practical guidance for a free-text query.
+
+        Args:
+            query: The question or goal to generate guidance for.
+
+        Returns:
+            :class:`WisdomReport` with four-dimensional synthesis.
+        """
+        return self._get_wisdom_synthesizer().synthesize(query)
+
+    # ------------------------------------------------------------------
+    # v0.24.0 — EpistemicEvolution
+    # ------------------------------------------------------------------
+
+    def _get_epistemic_evolution(self) -> "Any":
+        if not hasattr(self, "_epistemic_evolution"):
+            from emms.memory.epistemic_evolution import EpistemicEvolution
+            self._epistemic_evolution = EpistemicEvolution(memory=self.memory)
+        return self._epistemic_evolution
+
+    def evolve_knowledge(self, domain: "Optional[str]" = None) -> "Any":
+        """Compute epistemic evolution profiles for all memory domains.
+
+        Args:
+            domain: Restrict to this domain only (``None`` = all domains).
+
+        Returns:
+            :class:`EvolutionReport` with domains sorted by knowledge_density desc.
+        """
+        return self._get_epistemic_evolution().evolve(domain=domain)
+
+    def domain_knowledge_profile(self, domain: str) -> "Any":
+        """Return the epistemic profile for a specific domain.
+
+        Args:
+            domain: Domain name to query.
+
+        Returns:
+            :class:`KnowledgeDomain`, or ``None`` if not found.
+        """
+        return self._get_epistemic_evolution().domain_profile(domain)
+
+    def knowledge_gaps(self) -> "Any":
+        """Return domains with fewer than min_memories memories.
+
+        Returns:
+            List of domain names flagged as knowledge gaps.
+        """
+        return self._get_epistemic_evolution().knowledge_gaps()
+
+    def most_active_domain(self) -> "Any":
+        """Return the domain with the highest growth_rate, or ``None``.
+
+        Returns:
+            :class:`KnowledgeDomain` with highest growth_rate, or ``None``.
+        """
+        return self._get_epistemic_evolution().most_active()
+
+    def most_consolidated_domain(self) -> "Optional[str]":
+        """Return the name of the domain with highest consolidation_score.
+
+        Returns:
+            Domain name string, or ``None`` if no domains have been evolved.
+        """
+        engine = self._get_epistemic_evolution()
+        if not engine._domains:
+            return None
+        best = max(engine._domains, key=lambda kd: kd.consolidation_score)
+        return best.domain

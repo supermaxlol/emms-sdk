@@ -58,6 +58,11 @@ You can also set: export ANTHROPIC_API_KEY="sk-ant-..."
    /moral          Ethical framework evaluation (C/D/V) per memory
    /dilemmas       Ethical tensions between conflicting imperatives
 
+ WISE MIND (v0.24.0)
+   /biases         Cognitive bias detection across 10 bias types
+   /wisdom         Synthesise practical guidance from memory for a query
+   /evolution      Knowledge growth and consolidation across domains
+
  SESSION
    /bridge         Open threads from previous session
    /prompt         Full system prompt sent to Claude
@@ -1060,6 +1065,66 @@ def show_dilemmas(emms: EMMS) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Display helpers — WISE MIND (v0.24.0)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def show_biases(emms: EMMS) -> None:
+    print("\n--- Cognitive Biases ---")
+    try:
+        report = emms.map_biases()
+        print(f"  Total: {report.total_biases}  "
+              f"Dominant: {report.dominant_bias}  "
+              f"Mean strength: {report.mean_strength:.3f}")
+        if not report.biases:
+            print("  (No biases detected above threshold)")
+        for b in report.biases[:5]:
+            print(f"  [{b.display_name:25s}]  strength={b.strength:.3f}  "
+                  f"{len(b.affected_memory_ids)} memories")
+    except Exception as e:
+        print(f"  Bias detection failed: {e}")
+    print("--- End Cognitive Biases ---\n")
+
+
+def show_wisdom(emms: EMMS) -> None:
+    print("\n--- Wisdom Synthesis ---")
+    try:
+        query = input("  Query for wisdom synthesis: ").strip()
+        if not query:
+            print("  (No query entered)")
+        else:
+            report = emms.synthesize_wisdom(query=query)
+            g = report.guidance
+            print(f"  Confidence: {g.confidence:.0%}  "
+                  f"Dimensions: {report.dimensions_used}")
+            print(f"  Values: {g.relevant_values[:3]}")
+            print(f"  Synthesis: {g.synthesis[:200]}")
+    except Exception as e:
+        print(f"  Wisdom synthesis failed: {e}")
+    print("--- End Wisdom Synthesis ---\n")
+
+
+def show_knowledge_evolution(emms: EMMS) -> None:
+    print("\n--- Knowledge Evolution ---")
+    try:
+        report = emms.evolve_knowledge()
+        print(f"  Domains: {report.total_domains}  "
+              f"Most active: {report.most_active_domain}  "
+              f"Most consolidated: {report.most_consolidated_domain}  "
+              f"Overall growth: {report.overall_growth_rate:+.3f}")
+        if report.knowledge_gaps:
+            print(f"  Gaps: {', '.join(report.knowledge_gaps)}")
+        for kd in report.domains[:5]:
+            print(f"  [{kd.domain:12s}]  n={kd.memory_count}  "
+                  f"growth={kd.growth_rate:+.3f}  "
+                  f"consolidation={kd.consolidation_score:.3f}  "
+                  f"density={kd.knowledge_density:.3f}")
+    except Exception as e:
+        print(f"  Knowledge evolution failed: {e}")
+    print("--- End Knowledge Evolution ---\n")
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Display helpers — SESSION
 # ──────────────────────────────────────────────────────────────────────
 
@@ -1153,6 +1218,11 @@ HELP_TEXT = """\
     /moral          Ethical framework evaluation per memory
     /dilemmas       Ethical tensions between imperatives
 
+  WISE MIND (v0.24.0)
+    /biases         Cognitive bias detection (10 types)
+    /wisdom         Practical guidance synthesis from memory
+    /evolution      Knowledge growth and consolidation
+
   SESSION
     /bridge         Previous session open threads
     /prompt         Full system prompt
@@ -1167,7 +1237,7 @@ HELP_TEXT = """\
 
 def main() -> None:
     print("=" * 64)
-    print("  EMMS v0.23.0 — Full-Feature Interactive Agent")
+    print("  EMMS v0.24.0 — Full-Feature Interactive Agent")
     print("=" * 64)
     print()
 
@@ -1270,6 +1340,12 @@ def main() -> None:
             show_moral(emms); continue
         elif cmd == "/dilemmas":
             show_dilemmas(emms); continue
+        elif cmd == "/biases":
+            show_biases(emms); continue
+        elif cmd == "/wisdom":
+            show_wisdom(emms); continue
+        elif cmd == "/evolution":
+            show_knowledge_evolution(emms); continue
         elif cmd == "/bridge":
             show_bridge(); continue
         elif cmd == "/prompt":
