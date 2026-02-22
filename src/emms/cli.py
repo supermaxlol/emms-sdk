@@ -1786,6 +1786,112 @@ def cmd_update_self_model(args: argparse.Namespace) -> None:
         print(report.summary())
 
 
+# v0.20.0 commands
+
+
+def cmd_build_causal_map(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    report = agent.build_causal_map(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_concepts": report.total_concepts,
+            "total_edges": report.total_edges,
+            "most_influential": report.most_influential,
+            "most_affected": report.most_affected,
+            "edges": [
+                {"source": e.source, "target": e.target,
+                 "relation": e.relation, "strength": e.strength}
+                for e in report.edges[:10]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_effects_of(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.build_causal_map()
+    edges = agent.effects_of(args.concept)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "concept": args.concept,
+            "effects": [
+                {"target": e.target, "relation": e.relation, "strength": e.strength}
+                for e in edges
+            ],
+        }))
+    else:
+        if not edges:
+            print(f"No causal effects found for '{args.concept}'.")
+        for e in edges:
+            print(e.summary())
+
+
+def cmd_generate_counterfactuals(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    direction = getattr(args, "direction", "both")
+    report = agent.generate_counterfactuals(domain=domain, direction=direction)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_memories_assessed": report.total_memories_assessed,
+            "counterfactuals_generated": report.counterfactuals_generated,
+            "mean_plausibility": report.mean_plausibility,
+            "counterfactuals": [
+                {"id": c.id, "direction": c.direction,
+                 "valence_shift": c.valence_shift, "plausibility": c.plausibility,
+                 "domain": c.domain, "content": c.counterfactual_content[:120]}
+                for c in report.counterfactuals[:8]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_distill_skills(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None)
+    report = agent.distill_skills(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_memories_analyzed": report.total_memories_analyzed,
+            "skills_distilled": report.skills_distilled,
+            "domains_covered": report.domains_covered,
+            "skills": [
+                {"id": s.id, "name": s.name, "domain": s.domain,
+                 "confidence": s.confidence, "preconditions": s.preconditions,
+                 "outcomes": s.outcomes}
+                for s in report.skills[:8]
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_best_skill(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.distill_skills()
+    skill = agent.best_skill(args.goal)
+    if getattr(args, "json", False):
+        if skill is None:
+            print(json.dumps({"found": False, "skill": None}))
+        else:
+            print(json.dumps({
+                "found": True,
+                "skill": {
+                    "id": skill.id, "name": skill.name, "domain": skill.domain,
+                    "confidence": skill.confidence, "preconditions": skill.preconditions,
+                    "outcomes": skill.outcomes, "description": skill.description,
+                },
+            }))
+    else:
+        if skill is None:
+            print("No skills distilled yet.")
+        else:
+            print(skill.summary())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -2479,6 +2585,41 @@ def build_parser() -> argparse.ArgumentParser:
     p_usm = sub.add_parser("update-self-model",
                             help="Rebuild the self-model from current memory contents.")
     p_usm.set_defaults(func=cmd_update_self_model)
+
+    # v0.20.0 commands
+
+    # build-causal-map
+    p_bcm = sub.add_parser("build-causal-map",
+                            help="Extract directed causal graph from memories.")
+    p_bcm.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_bcm.set_defaults(func=cmd_build_causal_map)
+
+    # effects-of
+    p_eo = sub.add_parser("effects-of",
+                           help="Show what a concept causes in the causal graph.")
+    p_eo.add_argument("concept", help="Cause concept token.")
+    p_eo.set_defaults(func=cmd_effects_of)
+
+    # generate-counterfactuals
+    p_gcf = sub.add_parser("generate-counterfactuals",
+                            help="Generate 'what if' alternatives to past memories.")
+    p_gcf.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_gcf.add_argument("--direction", default="both",
+                        choices=["upward", "downward", "both"],
+                        help="Counterfactual direction (default: both).")
+    p_gcf.set_defaults(func=cmd_generate_counterfactuals)
+
+    # distill-skills
+    p_ds = sub.add_parser("distill-skills",
+                           help="Distil procedural skills from recurring memory patterns.")
+    p_ds.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_ds.set_defaults(func=cmd_distill_skills)
+
+    # best-skill
+    p_bs = sub.add_parser("best-skill",
+                           help="Find the best skill for a given goal description.")
+    p_bs.add_argument("goal", help="Natural-language goal description.")
+    p_bs.set_defaults(func=cmd_best_skill)
 
     return parser
 

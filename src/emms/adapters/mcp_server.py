@@ -1051,6 +1051,60 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    # v0.20.0 tools
+    {
+        "name": "emms_build_causal_map",
+        "description": "Extract a directed causal graph from memories, returning concept nodes, edges, and influential/affected rankings.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_effects_of",
+        "description": "Return causal edges whose source is the given concept (what does this concept cause?).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "concept": {"type": "string", "description": "Cause concept token."},
+            },
+            "required": ["concept"],
+        },
+    },
+    {
+        "name": "emms_generate_counterfactuals",
+        "description": "Generate 'what if' counterfactual alternatives to past memories, scored by plausibility and valence shift.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+                "direction": {"type": "string", "enum": ["upward", "downward", "both"], "description": "Counterfactual direction (default 'both')."},
+            },
+        },
+    },
+    {
+        "name": "emms_distill_skills",
+        "description": "Distil reusable procedural skills from recurring action patterns in memory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_best_skill",
+        "description": "Find the distilled skill most relevant to a goal description using token Jaccard overlap.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal_description": {"type": "string", "description": "Natural-language description of the goal."},
+            },
+            "required": ["goal_description"],
+        },
+    },
 ]
 
 
@@ -2643,6 +2697,110 @@ class EMCPServer:
             "summary": report.summary(),
         }
 
+    # v0.20.0 handlers
+
+    def _handle_build_causal_map(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        report = self.emms.build_causal_map(domain=domain)
+        return {
+            "ok": True,
+            "total_concepts": report.total_concepts,
+            "total_edges": report.total_edges,
+            "most_influential": report.most_influential,
+            "most_affected": report.most_affected,
+            "edges": [
+                {
+                    "source": e.source,
+                    "target": e.target,
+                    "relation": e.relation,
+                    "strength": e.strength,
+                    "memory_count": len(e.memory_ids),
+                }
+                for e in report.edges[:10]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_effects_of(self, args: dict[str, Any]) -> dict[str, Any]:
+        concept = args.get("concept", "")
+        self.emms.build_causal_map()
+        edges = self.emms.effects_of(concept)
+        return {
+            "ok": True,
+            "concept": concept,
+            "effects_count": len(edges),
+            "effects": [
+                {"target": e.target, "relation": e.relation, "strength": e.strength}
+                for e in edges[:10]
+            ],
+        }
+
+    def _handle_generate_counterfactuals(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        direction = args.get("direction", "both")
+        report = self.emms.generate_counterfactuals(domain=domain, direction=direction)
+        return {
+            "ok": True,
+            "total_memories_assessed": report.total_memories_assessed,
+            "counterfactuals_generated": report.counterfactuals_generated,
+            "mean_plausibility": report.mean_plausibility,
+            "counterfactuals": [
+                {
+                    "id": c.id,
+                    "direction": c.direction,
+                    "valence_shift": c.valence_shift,
+                    "plausibility": c.plausibility,
+                    "domain": c.domain,
+                    "content": c.counterfactual_content[:120],
+                }
+                for c in report.counterfactuals[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_distill_skills(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain")
+        report = self.emms.distill_skills(domain=domain)
+        return {
+            "ok": True,
+            "total_memories_analyzed": report.total_memories_analyzed,
+            "skills_distilled": report.skills_distilled,
+            "domains_covered": report.domains_covered,
+            "skills": [
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    "domain": s.domain,
+                    "confidence": s.confidence,
+                    "preconditions": s.preconditions,
+                    "outcomes": s.outcomes,
+                    "description": s.description[:120],
+                }
+                for s in report.skills[:8]
+            ],
+            "summary": report.summary(),
+        }
+
+    def _handle_best_skill(self, args: dict[str, Any]) -> dict[str, Any]:
+        goal = args.get("goal_description", "")
+        self.emms.distill_skills()
+        skill = self.emms.best_skill(goal)
+        if skill is None:
+            return {"ok": True, "found": False, "skill": None}
+        return {
+            "ok": True,
+            "found": True,
+            "skill": {
+                "id": skill.id,
+                "name": skill.name,
+                "domain": skill.domain,
+                "confidence": skill.confidence,
+                "preconditions": skill.preconditions,
+                "outcomes": skill.outcomes,
+                "description": skill.description,
+            },
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -2740,4 +2898,10 @@ class EMCPServer:
         "emms_build_hierarchy": _handle_build_hierarchy,
         "emms_concept_distance": _handle_concept_distance,
         "emms_update_self_model": _handle_update_self_model,
+        # v0.20.0 tools
+        "emms_build_causal_map": _handle_build_causal_map,
+        "emms_effects_of": _handle_effects_of,
+        "emms_generate_counterfactuals": _handle_generate_counterfactuals,
+        "emms_distill_skills": _handle_distill_skills,
+        "emms_best_skill": _handle_best_skill,
     }

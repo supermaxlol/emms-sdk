@@ -3274,3 +3274,123 @@ class EMMS:
             Dict of domain name to expertise score.
         """
         return self._get_self_model().capability_profile()
+
+    # ------------------------------------------------------------------
+    # v0.20.0 — CausalMapper
+    # ------------------------------------------------------------------
+
+    def _get_causal_mapper(self) -> "Any":
+        if not hasattr(self, "_causal_mapper"):
+            from emms.memory.causal import CausalMapper
+            self._causal_mapper = CausalMapper(memory=self.memory)
+        return self._causal_mapper
+
+    def build_causal_map(self, domain: "Optional[str]" = None) -> "Any":
+        """Extract a directed causal graph from accumulated memories.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`CausalReport` with concept nodes, edges, and rankings.
+        """
+        return self._get_causal_mapper().build(domain=domain)
+
+    def effects_of(self, concept: str) -> "Any":
+        """Return all causal edges whose source is *concept*.
+
+        Args:
+            concept: The cause concept to query.
+
+        Returns:
+            List of :class:`CausalEdge` sorted by strength descending.
+        """
+        return self._get_causal_mapper().effects_of(concept)
+
+    def causes_of(self, concept: str) -> "Any":
+        """Return all causal edges whose target is *concept*.
+
+        Args:
+            concept: The effect concept to query.
+
+        Returns:
+            List of :class:`CausalEdge` sorted by strength descending.
+        """
+        return self._get_causal_mapper().causes_of(concept)
+
+    # ------------------------------------------------------------------
+    # v0.20.0 — CounterfactualEngine
+    # ------------------------------------------------------------------
+
+    def _get_counterfactual_engine(self) -> "Any":
+        if not hasattr(self, "_counterfactual_engine"):
+            from emms.memory.counterfactual import CounterfactualEngine
+            self._counterfactual_engine = CounterfactualEngine(memory=self.memory)
+        return self._counterfactual_engine
+
+    def generate_counterfactuals(
+        self,
+        domain: "Optional[str]" = None,
+        direction: str = "both",
+    ) -> "Any":
+        """Generate counterfactual alternatives from accumulated memories.
+
+        Args:
+            domain:    Restrict to this domain (``None`` = all domains).
+            direction: ``"upward"`` | ``"downward"`` | ``"both"`` (default).
+
+        Returns:
+            :class:`CounterfactualReport` with counterfactuals sorted by
+            absolute valence shift descending.
+        """
+        return self._get_counterfactual_engine().generate(
+            domain=domain, direction=direction
+        )
+
+    def upward_counterfactuals(self, n: int = 5) -> "Any":
+        """Return the n best upward counterfactuals (\"could have been better\").
+
+        Args:
+            n: Number of counterfactuals to return (default 5).
+        """
+        return self._get_counterfactual_engine().upward(n=n)
+
+    def downward_counterfactuals(self, n: int = 5) -> "Any":
+        """Return the n best downward counterfactuals (\"could have been worse\").
+
+        Args:
+            n: Number of counterfactuals to return (default 5).
+        """
+        return self._get_counterfactual_engine().downward(n=n)
+
+    # ------------------------------------------------------------------
+    # v0.20.0 — SkillDistiller
+    # ------------------------------------------------------------------
+
+    def _get_skill_distiller(self) -> "Any":
+        if not hasattr(self, "_skill_distiller"):
+            from emms.memory.skills import SkillDistiller
+            self._skill_distiller = SkillDistiller(memory=self.memory)
+        return self._skill_distiller
+
+    def distill_skills(self, domain: "Optional[str]" = None) -> "Any":
+        """Distil reusable procedural skills from accumulated memories.
+
+        Args:
+            domain: Restrict to memories in this domain (``None`` = all).
+
+        Returns:
+            :class:`SkillReport` with skills sorted by confidence descending.
+        """
+        return self._get_skill_distiller().distill(domain=domain)
+
+    def best_skill(self, goal_description: str) -> "Any":
+        """Find the skill most relevant to a goal via token Jaccard overlap.
+
+        Args:
+            goal_description: Natural-language description of the goal.
+
+        Returns:
+            :class:`DistilledSkill` with highest overlap, or ``None``.
+        """
+        return self._get_skill_distiller().best_skill(goal_description)

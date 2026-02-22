@@ -1,5 +1,41 @@
 """EMMS — Enhanced Memory Management System for AI Agents.
 
+v0.20.0: The Reasoning Mind
+- CausalMapper: directed causal graph extraction from memory content; scans for
+  relational keywords (causes, enables, produces, prevents, reduces, increases,
+  requires, triggers, inhibits, leads, results, improves, damages, strengthens,
+  weakens); word-before = source, first meaningful word-after = target; edge
+  strength = co-occurrence count / total_memories; BFS causal_path; effects_of
+  and causes_of for forward/backward inference; most_influential by out-degree;
+  CausalReport with total_concepts, total_edges, most_influential, most_affected,
+  edges; biological analogue: causal model theory (Pearl 2000), hippocampal-PFC
+  causal reasoning (Kumaran 2016), brain as causal generative model (Tenenbaum
+  2011); EMMS façades: build_causal_map, effects_of, causes_of
+- CounterfactualEngine: "what if" alternatives to past experiences; upward
+  counterfactuals (valence < 0.1) — "could have been better", valence_shift +0.4;
+  downward counterfactuals (valence > -0.1) — "could have been worse",
+  valence_shift -0.4; plausibility = memory_strength × 0.8; IDs prefixed "cf_";
+  optional store_results as "counterfactual" domain memories; CounterfactualReport
+  sorted by |valence_shift|; upward(n)/downward(n)/for_memory() retrieval;
+  biological analogue: counterfactual thinking (Roese 1997), upward counterfactuals
+  motivate future behaviour (Markman 1993), orbitofrontal cortex (Camille 2004);
+  EMMS façades: generate_counterfactuals, upward_counterfactuals, downward_counterfactuals
+- SkillDistiller: extracts reusable procedural skills from recurring action patterns;
+  action tokens (improve, reduce, increase, enable, build, create, learn, apply,
+  practice, develop, analyze, optimize, implement, design, test, solve, train,
+  strengthen, generate, construct, establish); preconditions = up to 3 meaningful
+  tokens before action; outcomes = up to 3 after; confidence = freq_ratio × 0.6 +
+  mean_strength × 0.4; min_skill_frequency filter; best_skill via token Jaccard
+  overlap; skill IDs prefixed "skill_"; optional store_skills as "skill" domain
+  memories; SkillReport with skills sorted by confidence; biological analogue:
+  procedural learning (Fitts 1964), basal ganglia skill formation (Graybiel 2008),
+  episodic-to-procedural transfer (Cohen & Squire 1980), chunking (Sakai 2004);
+  EMMS façades: distill_skills, best_skill
+- MCP tools (5 new): emms_build_causal_map, emms_effects_of,
+  emms_generate_counterfactuals, emms_distill_skills, emms_best_skill (87 total)
+- CLI commands (5 new): build-causal-map, effects-of, generate-counterfactuals,
+  distill-skills, best-skill (91 total)
+
 v0.19.0: The Integrated Mind
 - EmotionalRegulator: tracks emotional state (valence, arousal, dominant_domain)
   from the most recent window of memories; cognitive reappraisal for memories with
@@ -414,10 +450,13 @@ from emms.memory.projection import TemporalProjection, FutureScenario, Projectio
 from emms.memory.emotion import EmotionalRegulator, EmotionalState, ReappraisalResult, EmotionReport
 from emms.memory.hierarchy import ConceptHierarchy, ConceptNode, HierarchyReport
 from emms.memory.self_model import SelfModel, Belief, SelfModelReport
+from emms.memory.causal import CausalMapper, CausalEdge, CausalPath, CausalReport
+from emms.memory.counterfactual import CounterfactualEngine, Counterfactual, CounterfactualReport
+from emms.memory.skills import SkillDistiller, DistilledSkill, SkillReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.19.0"
+__version__ = "0.20.0"
 __all__ = [
     # Core
     "EMMS",
@@ -535,6 +574,17 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.20.0 additions
+    "CausalMapper",
+    "CausalEdge",
+    "CausalPath",
+    "CausalReport",
+    "CounterfactualEngine",
+    "Counterfactual",
+    "CounterfactualReport",
+    "SkillDistiller",
+    "DistilledSkill",
+    "SkillReport",
     # v0.19.0 additions
     "EmotionalRegulator",
     "EmotionalState",
