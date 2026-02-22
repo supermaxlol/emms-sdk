@@ -130,7 +130,7 @@ class CausalMapper:
     def __init__(
         self,
         memory: Any,
-        min_strength: float = 0.1,
+        min_strength: float = 0.01,
         max_concepts: int = 30,
     ) -> None:
         self.memory = memory

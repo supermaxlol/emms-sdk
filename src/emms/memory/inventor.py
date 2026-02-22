@@ -149,6 +149,7 @@ class ConceptInventor:
         # For each domain, build per-token doc-frequency and collect rare tokens
         domain_rare_tokens: dict[str, list[tuple[str, int, int]]] = {}
         # value = list of (token, domain_freq, n_domain_docs)
+        domain_full_freq: dict[str, Counter] = {}  # full freq for normalisation
         for dom, items in domain_items.items():
             freq: Counter = Counter()
             n_docs = len(items)
@@ -157,6 +158,7 @@ class ConceptInventor:
                 tokens = self._tokenise(content)
                 for tok in set(tokens):
                     freq[tok] += 1
+            domain_full_freq[dom] = freq
             # rare = appears in <= 20% of domain memories
             threshold = max(1, int(n_docs * 0.20))
             rare = [
@@ -172,10 +174,11 @@ class ConceptInventor:
         candidates: list[InventedConcept] = []
         seen_pairs: set[frozenset[str]] = set()
 
-        # Compute max_freq per domain for normalisation
+        # Compute max_freq per domain from the FULL domain frequency (not just rare),
+        # so the normalisation is meaningful even when all rare tokens have count=1.
         domain_max_freq: dict[str, int] = {
-            dom: max((c for _, c, _ in tokens), default=1)
-            for dom, tokens in domain_rare_tokens.items()
+            dom: max(domain_full_freq[dom].values(), default=1)
+            for dom in domain_rare_tokens
         }
 
         for i, dom_a in enumerate(domains):
