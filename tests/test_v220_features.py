@@ -803,7 +803,7 @@ class TestMCPV220:
 
     def test_tool_count_is_97(self):
         server = self._make_server()
-        assert len(server.tool_definitions) == 112
+        assert len(server.tool_definitions) == 117
 
     def test_assess_novelty_tool_present(self):
         server = self._make_server()
@@ -870,7 +870,7 @@ class TestMCPV220:
 class TestV220Exports:
 
     def test_version_is_0_22_0(self):
-        assert emms_pkg.__version__ == "0.25.0"
+        assert emms_pkg.__version__ == "0.26.0"
 
     def test_novelty_detector_exported(self):
         from emms import NoveltyDetector

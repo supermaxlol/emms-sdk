@@ -1355,6 +1355,53 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    # v0.26.0 — The Resilient Mind
+    {
+        "name": "emms_trace_adversity",
+        "description": "Classify memories into 5 adversity types (loss, failure, rejection, threat, uncertainty) and return a severity-sorted report.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Optional domain filter"},
+            },
+        },
+    },
+    {
+        "name": "emms_dominant_adversity_type",
+        "description": "Return the most common adversity type from the last trace_adversity call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "emms_measure_self_compassion",
+        "description": "Measure self-kindness vs. self-harshness ratio across memory domains and return a SelfCompassionReport.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Optional domain filter"},
+            },
+        },
+    },
+    {
+        "name": "emms_assess_resilience",
+        "description": "Detect adversity windows and post-adversity recovery arcs; return a ResilienceReport with resilience_score and bounce_back_rate.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Optional domain filter"},
+            },
+        },
+    },
+    {
+        "name": "emms_resilience_bounce_back_rate",
+        "description": "Return the fraction of adversity windows followed by genuine emotional recovery (0..1).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -3569,6 +3616,79 @@ class EMCPServer:
         trend = self.emms.mood_trend()
         return {"ok": True, "trend": trend}
 
+    # v0.26.0 handlers
+    def _handle_trace_adversity(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain") or None
+        report = self.emms.trace_adversity(domain=domain)
+        return {
+            "ok": True,
+            "total_events": report.total_events,
+            "most_common_type": report.most_common_type,
+            "dominant_domain": report.dominant_domain,
+            "cumulative_severity": report.cumulative_severity,
+            "duration_seconds": report.duration_seconds,
+            "events": [
+                {
+                    "id": e.id,
+                    "adversity_type": e.adversity_type,
+                    "severity": e.severity,
+                    "domain": e.domain,
+                    "memory_id": e.memory_id,
+                }
+                for e in report.events[:10]
+            ],
+        }
+
+    def _handle_dominant_adversity_type(self, args: dict[str, Any]) -> dict[str, Any]:
+        adv_type = self.emms.dominant_adversity_type()
+        return {"ok": True, "dominant_adversity_type": adv_type}
+
+    def _handle_measure_self_compassion(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain") or None
+        report = self.emms.measure_self_compassion(domain=domain)
+        return {
+            "ok": True,
+            "total_domains": report.total_domains,
+            "most_compassionate_domain": report.most_compassionate_domain,
+            "harshest_domain": report.harshest_domain,
+            "mean_compassion_score": report.mean_compassion_score,
+            "duration_seconds": report.duration_seconds,
+            "profiles": [
+                {
+                    "domain": p.domain,
+                    "compassion_score": p.compassion_score,
+                    "kindness_count": p.kindness_count,
+                    "harsh_count": p.harsh_count,
+                    "inner_critic_intensity": p.inner_critic_intensity,
+                }
+                for p in report.profiles
+            ],
+        }
+
+    def _handle_assess_resilience(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain") or None
+        report = self.emms.assess_resilience(domain=domain)
+        strongest = report.strongest_recovery
+        return {
+            "ok": True,
+            "total_arcs": report.total_arcs,
+            "resilience_score": report.resilience_score,
+            "bounce_back_rate": report.bounce_back_rate,
+            "mean_adversity_depth": report.mean_adversity_depth,
+            "mean_recovery_slope": report.mean_recovery_slope,
+            "duration_seconds": report.duration_seconds,
+            "strongest_recovery": {
+                "id": strongest.id,
+                "adversity_depth": strongest.adversity_depth,
+                "recovery_slope": strongest.recovery_slope,
+                "recovered": strongest.recovered,
+            } if strongest else None,
+        }
+
+    def _handle_resilience_bounce_back_rate(self, args: dict[str, Any]) -> dict[str, Any]:
+        rate = self.emms.resilience_bounce_back_rate()
+        return {"ok": True, "bounce_back_rate": rate}
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -3702,4 +3822,10 @@ class EMCPServer:
         "emms_assess_efficacy": _handle_assess_efficacy,
         "emms_trace_mood": _handle_trace_mood,
         "emms_mood_trend": _handle_mood_trend,
+        # v0.26.0 tools
+        "emms_trace_adversity": _handle_trace_adversity,
+        "emms_dominant_adversity_type": _handle_dominant_adversity_type,
+        "emms_measure_self_compassion": _handle_measure_self_compassion,
+        "emms_assess_resilience": _handle_assess_resilience,
+        "emms_resilience_bounce_back_rate": _handle_resilience_bounce_back_rate,
     }

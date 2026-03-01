@@ -716,7 +716,7 @@ class TestMCPV250:
 
     def test_tool_count_is_112(self):
         server = self._make_server()
-        assert len(server.tool_definitions) == 112, (
+        assert len(server.tool_definitions) == 117, (
             f"Expected 112 tools, got {len(server.tool_definitions)}"
         )
 
@@ -778,7 +778,7 @@ class TestMCPV250:
 class TestV250Exports:
 
     def test_version_is_0_25_0(self):
-        assert emms_pkg.__version__ == "0.25.0"
+        assert emms_pkg.__version__ == "0.26.0"
 
     def test_rumination_detector_importable(self):
         from emms import RuminationDetector

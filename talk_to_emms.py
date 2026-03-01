@@ -68,6 +68,11 @@ You can also set: export ANTHROPIC_API_KEY="sk-ant-..."
    /efficacy       Domain self-efficacy from outcome language
    /mood           Temporal mood dynamics and valence arc
 
+ RESILIENT MIND (v0.26.0)
+   /adversity      Adversity type classification and severity report
+   /compassion     Self-kindness vs. self-harshness measurement
+   /resilience     Post-adversity recovery arc analysis
+
  SESSION
    /bridge         Open threads from previous session
    /prompt         Full system prompt sent to Claude
@@ -1186,6 +1191,60 @@ def show_mood_dynamics(emms: EMMS) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Display helpers — RESILIENT MIND (v0.26.0)
+# ──────────────────────────────────────────────────────────────────────
+
+def show_adversity(emms: EMMS) -> None:
+    print("\n--- Adversity Trace ---")
+    try:
+        report = emms.trace_adversity()
+        print(f"  Total events: {report.total_events}  "
+              f"Most common type: {report.most_common_type}  "
+              f"Dominant domain: {report.dominant_domain}  "
+              f"Cumulative severity: {report.cumulative_severity:.3f}")
+        for ev in report.events[:5]:
+            print(f"  [{ev.adversity_type}] sev={ev.severity:.3f} domain={ev.domain}")
+    except Exception as e:
+        print(f"  Adversity trace failed: {e}")
+    print("--- End Adversity Trace ---\n")
+
+
+def show_compassion(emms: EMMS) -> None:
+    print("\n--- Self-Compassion Report ---")
+    try:
+        report = emms.measure_self_compassion()
+        print(f"  Domains: {report.total_domains}  "
+              f"Most compassionate: {report.most_compassionate_domain}  "
+              f"Harshest: {report.harshest_domain}  "
+              f"Mean score: {report.mean_compassion_score:.3f}")
+        for p in report.profiles[:5]:
+            print(f"  [{p.domain}] score={p.compassion_score:.3f} "
+                  f"kind={p.kindness_count} harsh={p.harsh_count} "
+                  f"critic={p.inner_critic_intensity:.3f}")
+    except Exception as e:
+        print(f"  Self-compassion measurement failed: {e}")
+    print("--- End Self-Compassion ---\n")
+
+
+def show_resilience(emms: EMMS) -> None:
+    print("\n--- Resilience Index ---")
+    try:
+        report = emms.assess_resilience()
+        print(f"  Total arcs: {report.total_arcs}  "
+              f"Resilience score: {report.resilience_score:.3f}  "
+              f"Bounce-back rate: {report.bounce_back_rate:.3f}")
+        if report.strongest_recovery:
+            sr = report.strongest_recovery
+            print(f"  Strongest recovery: depth={sr.adversity_depth:.3f} "
+                  f"slope={sr.recovery_slope:.3f} recovered={sr.recovered}")
+        for arc in report.arcs[:3]:
+            print(f"  {arc.summary()}")
+    except Exception as e:
+        print(f"  Resilience assessment failed: {e}")
+    print("--- End Resilience Index ---\n")
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Display helpers — SESSION
 # ──────────────────────────────────────────────────────────────────────
 
@@ -1289,6 +1348,11 @@ HELP_TEXT = """\
     /efficacy       Domain self-efficacy from outcome language
     /mood           Temporal mood dynamics and valence arc
 
+  RESILIENT MIND (v0.26.0)
+    /adversity      Adversity type classification and severity report
+    /compassion     Self-kindness vs. self-harshness measurement
+    /resilience     Post-adversity recovery arc analysis
+
   SESSION
     /bridge         Previous session open threads
     /prompt         Full system prompt
@@ -1303,7 +1367,7 @@ HELP_TEXT = """\
 
 def main() -> None:
     print("=" * 64)
-    print("  EMMS v0.25.0 — Full-Feature Interactive Agent")
+    print("  EMMS v0.26.0 — Full-Feature Interactive Agent")
     print("=" * 64)
     print()
 
@@ -1418,6 +1482,12 @@ def main() -> None:
             show_efficacy(emms); continue
         elif cmd == "/mood":
             show_mood_dynamics(emms); continue
+        elif cmd == "/adversity":
+            show_adversity(emms); continue
+        elif cmd == "/compassion":
+            show_compassion(emms); continue
+        elif cmd == "/resilience":
+            show_resilience(emms); continue
         elif cmd == "/bridge":
             show_bridge(); continue
         elif cmd == "/prompt":

@@ -4004,3 +4004,116 @@ class EMMS:
             List of label strings, or empty list if trace_mood not yet called.
         """
         return self._get_mood_dynamics().emotional_arc()
+
+    # ------------------------------------------------------------------
+    # v0.26.0 — The Resilient Mind
+    # ------------------------------------------------------------------
+
+    def _get_adversity_tracer(self):
+        """Lazy-init AdversityTracer."""
+        if not hasattr(self, "_adversity_tracer"):
+            from emms.memory.adversity import AdversityTracer
+            self._adversity_tracer = AdversityTracer(memory=self.memory)
+        return self._adversity_tracer
+
+    def trace_adversity(self, domain=None):
+        """Classify memories into 5 adversity types and return a report.
+
+        Args:
+            domain: Restrict to this domain (``None`` = all).
+
+        Returns:
+            :class:`AdversityReport` with events sorted by severity.
+        """
+        return self._get_adversity_tracer().trace(domain=domain)
+
+    def adversity_events_of_type(self, adversity_type):
+        """Return cached adversity events of the given type.
+
+        Args:
+            adversity_type: One of "loss", "failure", "rejection", "threat",
+                "uncertainty".
+
+        Returns:
+            List of :class:`AdversityEvent`.
+        """
+        return self._get_adversity_tracer().events_of_type(adversity_type)
+
+    def dominant_adversity_type(self):
+        """Return the most common adversity type from the last trace.
+
+        Returns:
+            Adversity type string or ``None``.
+        """
+        return self._get_adversity_tracer().dominant_adversity_type()
+
+    def _get_self_compassion_gauge(self):
+        """Lazy-init SelfCompassionGauge."""
+        if not hasattr(self, "_self_compassion_gauge"):
+            from emms.memory.self_compassion import SelfCompassionGauge
+            self._self_compassion_gauge = SelfCompassionGauge(memory=self.memory)
+        return self._self_compassion_gauge
+
+    def measure_self_compassion(self, domain=None):
+        """Measure self-kindness vs. self-harshness across domains.
+
+        Args:
+            domain: Restrict to this domain (``None`` = all).
+
+        Returns:
+            :class:`SelfCompassionReport` sorted by compassion_score.
+        """
+        return self._get_self_compassion_gauge().measure(domain=domain)
+
+    def compassion_for_domain(self, domain):
+        """Return the self-compassion profile for a specific domain.
+
+        Args:
+            domain: Domain name.
+
+        Returns:
+            :class:`SelfCompassionProfile` or ``None``.
+        """
+        return self._get_self_compassion_gauge().profile_for_domain(domain)
+
+    def harshest_domain(self):
+        """Return the domain with the lowest compassion_score.
+
+        Returns:
+            Domain name string or ``None``.
+        """
+        return self._get_self_compassion_gauge().harshest_domain()
+
+    def _get_resilience_index(self):
+        """Lazy-init ResilienceIndex."""
+        if not hasattr(self, "_resilience_index"):
+            from emms.memory.resilience import ResilienceIndex
+            self._resilience_index = ResilienceIndex(memory=self.memory)
+        return self._resilience_index
+
+    def assess_resilience(self, domain=None):
+        """Detect adversity windows and compute recovery arcs.
+
+        Args:
+            domain: Restrict to this domain (``None`` = all).
+
+        Returns:
+            :class:`ResilienceReport` with arcs and resilience_score.
+        """
+        return self._get_resilience_index().assess(domain=domain)
+
+    def resilience_bounce_back_rate(self):
+        """Return the fraction of adversity windows followed by recovery.
+
+        Returns:
+            Float 0..1.
+        """
+        return self._get_resilience_index().bounce_back_rate()
+
+    def strongest_recovery(self):
+        """Return the recovery arc with the highest recovery_slope.
+
+        Returns:
+            :class:`RecoveryArc` or ``None``.
+        """
+        return self._get_resilience_index().strongest_recovery_arc()

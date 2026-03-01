@@ -2437,6 +2437,76 @@ def cmd_mood_trend(args: argparse.Namespace) -> None:
         print(f"Mood trend: {trend}")
 
 
+# ---------------------------------------------------------------------------
+# v0.26.0 — The Resilient Mind
+# ---------------------------------------------------------------------------
+
+
+def cmd_trace_adversity(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None) or None
+    report = agent.trace_adversity(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_events": report.total_events,
+            "most_common_type": report.most_common_type,
+            "dominant_domain": report.dominant_domain,
+            "cumulative_severity": report.cumulative_severity,
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_dominant_adversity_type(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.trace_adversity()
+    adv_type = agent.dominant_adversity_type()
+    if getattr(args, "json", False):
+        print(json.dumps({"dominant_adversity_type": adv_type}))
+    else:
+        print(f"Dominant adversity type: {adv_type}")
+
+
+def cmd_measure_self_compassion(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None) or None
+    report = agent.measure_self_compassion(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_domains": report.total_domains,
+            "most_compassionate_domain": report.most_compassionate_domain,
+            "harshest_domain": report.harshest_domain,
+            "mean_compassion_score": report.mean_compassion_score,
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_assess_resilience(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    domain = getattr(args, "domain", None) or None
+    report = agent.assess_resilience(domain=domain)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_arcs": report.total_arcs,
+            "resilience_score": report.resilience_score,
+            "bounce_back_rate": report.bounce_back_rate,
+            "mean_adversity_depth": report.mean_adversity_depth,
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_resilience_bounce_back_rate(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.assess_resilience()
+    rate = agent.resilience_bounce_back_rate()
+    if getattr(args, "json", False):
+        print(json.dumps({"bounce_back_rate": rate}))
+    else:
+        print(f"Resilience bounce-back rate: {rate:.4f}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -3318,6 +3388,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_mt = sub.add_parser("mood-trend",
                            help="Return the mood trend from the last trace-mood call.")
     p_mt.set_defaults(func=cmd_mood_trend)
+
+    # v0.26.0 — The Resilient Mind
+    # trace-adversity
+    p_ta = sub.add_parser("trace-adversity",
+                           help="Classify memories by adversity type and return a severity report.")
+    p_ta.add_argument("--domain", default=None, help="Filter to this domain.")
+    p_ta.set_defaults(func=cmd_trace_adversity)
+
+    # dominant-adversity-type
+    p_dat = sub.add_parser("dominant-adversity-type",
+                            help="Return the most common adversity type from the last trace.")
+    p_dat.set_defaults(func=cmd_dominant_adversity_type)
+
+    # measure-self-compassion
+    p_sc = sub.add_parser("measure-self-compassion",
+                           help="Measure self-kindness vs. self-harshness across memory domains.")
+    p_sc.add_argument("--domain", default=None, help="Filter to this domain.")
+    p_sc.set_defaults(func=cmd_measure_self_compassion)
+
+    # assess-resilience
+    p_ar = sub.add_parser("assess-resilience",
+                           help="Detect adversity windows and recovery arcs; compute resilience score.")
+    p_ar.add_argument("--domain", default=None, help="Filter to this domain.")
+    p_ar.set_defaults(func=cmd_assess_resilience)
+
+    # resilience-bounce-back-rate
+    p_rbb = sub.add_parser("resilience-bounce-back-rate",
+                            help="Return the fraction of adversity windows followed by recovery.")
+    p_rbb.set_defaults(func=cmd_resilience_bounce_back_rate)
 
     return parser
 
