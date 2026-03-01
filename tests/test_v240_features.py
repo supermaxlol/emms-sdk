@@ -690,7 +690,7 @@ class TestMCPV240:
 
     def test_tool_count_is_107(self):
         server = self._make_server()
-        assert len(server.tool_definitions) == 107, (
+        assert len(server.tool_definitions) == 112, (
             f"Expected 107 tools, got {len(server.tool_definitions)}"
         )
 
@@ -752,7 +752,7 @@ class TestMCPV240:
 class TestV240Exports:
 
     def test_version_is_0_24_0(self):
-        assert emms_pkg.__version__ == "0.24.0"
+        assert emms_pkg.__version__ == "0.25.0"
 
     def test_bias_detector_importable(self):
         from emms import BiasDetector

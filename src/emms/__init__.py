@@ -591,13 +591,16 @@ from emms.memory.dilemma import DilemmaEngine, EthicalDilemma, DilemmaReport
 from emms.memory.bias import BiasDetector, BiasInstance, BiasReport
 from emms.memory.wisdom import WisdomSynthesizer, WisdomGuidance, WisdomReport
 from emms.memory.epistemic_evolution import EpistemicEvolution, KnowledgeDomain, EvolutionReport
+from emms.memory.rumination import RuminationDetector, RuminationCluster, RuminationReport
+from emms.memory.efficacy import SelfEfficacyAssessor, EfficacyProfile, EfficacyReport
+from emms.memory.mood_trajectory import MoodDynamics, MoodSegment, MoodReport
 from emms.memory.perspective import PerspectiveTaker, AgentModel, PerspectiveReport
 from emms.memory.trust import TrustLedger, TrustScore, TrustReport
 from emms.memory.norms import NormExtractor, SocialNorm, NormReport
 from emms.emms import EMMS
 from emms.prompts.identity import IdentityPromptBuilder, PROVIDER_RECOMMENDATIONS
 
-__version__ = "0.24.0"
+__version__ = "0.25.0"
 __all__ = [
     # Core
     "EMMS",
@@ -715,6 +718,16 @@ __all__ = [
     "AffectiveRetriever",
     "AffectiveResult",
     "EmotionalLandscape",
+    # v0.25.0 additions
+    "RuminationDetector",
+    "RuminationCluster",
+    "RuminationReport",
+    "SelfEfficacyAssessor",
+    "EfficacyProfile",
+    "EfficacyReport",
+    "MoodDynamics",
+    "MoodSegment",
+    "MoodReport",
     # v0.24.0 additions
     "BiasDetector",
     "BiasInstance",

@@ -63,6 +63,11 @@ You can also set: export ANTHROPIC_API_KEY="sk-ant-..."
    /wisdom         Synthesise practical guidance from memory for a query
    /evolution      Knowledge growth and consolidation across domains
 
+ VIGILANT MIND (v0.25.0)
+   /rumination     Repetitive thought cluster detection
+   /efficacy       Domain self-efficacy from outcome language
+   /mood           Temporal mood dynamics and valence arc
+
  SESSION
    /bridge         Open threads from previous session
    /prompt         Full system prompt sent to Claude
@@ -1125,6 +1130,62 @@ def show_knowledge_evolution(emms: EMMS) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Display helpers — VIGILANT MIND (v0.25.0)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def show_rumination(emms: EMMS) -> None:
+    print("\n--- Rumination Detection ---")
+    try:
+        report = emms.detect_rumination()
+        print(f"  Clusters: {report.total_clusters}  "
+              f"Most ruminative domain: {report.most_ruminative_domain}  "
+              f"Overall score: {report.overall_rumination_score:.3f}")
+        if not report.clusters:
+            print("  (No rumination clusters detected above threshold)")
+        for c in report.clusters[:5]:
+            print(f"  [score={c.rumination_score:.3f}  domain={c.domain}]  "
+                  f"themes={c.theme_tokens[:3]}")
+            print(f"    Hint: {c.resolution_hint}")
+    except Exception as e:
+        print(f"  Rumination detection failed: {e}")
+    print("--- End Rumination Detection ---\n")
+
+
+def show_efficacy(emms: EMMS) -> None:
+    print("\n--- Self-Efficacy Assessment ---")
+    try:
+        report = emms.assess_efficacy()
+        print(f"  Domains: {report.total_domains}  "
+              f"Highest: {report.highest_efficacy_domain}  "
+              f"Lowest: {report.lowest_efficacy_domain}  "
+              f"Mean: {report.mean_efficacy:.3f}")
+        for p in report.profiles[:5]:
+            print(f"  [{p.domain:12s}]  efficacy={p.efficacy_score:.3f}  "
+                  f"success={p.success_count}  failure={p.failure_count}  "
+                  f"trending={p.trending}")
+    except Exception as e:
+        print(f"  Efficacy assessment failed: {e}")
+    print("--- End Self-Efficacy Assessment ---\n")
+
+
+def show_mood_dynamics(emms: EMMS) -> None:
+    print("\n--- Mood Dynamics ---")
+    try:
+        report = emms.trace_mood()
+        print(f"  Memories: {report.total_memories}  "
+              f"Mean valence: {report.mean_valence:+.3f}  "
+              f"Volatility: {report.volatility:.3f}  "
+              f"Trend: {report.trend}  "
+              f"Dominant: {report.dominant_emotion}")
+        arc = " → ".join(s.label for s in report.segments)
+        print(f"  Emotional arc: {arc}")
+    except Exception as e:
+        print(f"  Mood dynamics failed: {e}")
+    print("--- End Mood Dynamics ---\n")
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Display helpers — SESSION
 # ──────────────────────────────────────────────────────────────────────
 
@@ -1223,6 +1284,11 @@ HELP_TEXT = """\
     /wisdom         Practical guidance synthesis from memory
     /evolution      Knowledge growth and consolidation
 
+  VIGILANT MIND (v0.25.0)
+    /rumination     Repetitive thought cluster detection
+    /efficacy       Domain self-efficacy from outcome language
+    /mood           Temporal mood dynamics and valence arc
+
   SESSION
     /bridge         Previous session open threads
     /prompt         Full system prompt
@@ -1237,7 +1303,7 @@ HELP_TEXT = """\
 
 def main() -> None:
     print("=" * 64)
-    print("  EMMS v0.24.0 — Full-Feature Interactive Agent")
+    print("  EMMS v0.25.0 — Full-Feature Interactive Agent")
     print("=" * 64)
     print()
 
@@ -1346,6 +1412,12 @@ def main() -> None:
             show_wisdom(emms); continue
         elif cmd == "/evolution":
             show_knowledge_evolution(emms); continue
+        elif cmd == "/rumination":
+            show_rumination(emms); continue
+        elif cmd == "/efficacy":
+            show_efficacy(emms); continue
+        elif cmd == "/mood":
+            show_mood_dynamics(emms); continue
         elif cmd == "/bridge":
             show_bridge(); continue
         elif cmd == "/prompt":

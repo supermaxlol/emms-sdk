@@ -1308,6 +1308,53 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    # v0.25.0 tools
+    {
+        "name": "emms_detect_rumination",
+        "description": "Detect repetitive intrusive thought clusters in memory using Jaccard token overlap and union-find clustering. Returns rumination scores and resolution hints.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_most_ruminative_theme",
+        "description": "Return the rumination cluster with the highest rumination score from the last detect_rumination call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "emms_assess_efficacy",
+        "description": "Assess domain-specific self-efficacy from success/failure outcome language in memory. Returns efficacy scores and trending per domain.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_trace_mood",
+        "description": "Trace temporal emotional valence evolution across chronological memory segments. Returns mood arc, trend, volatility, and dominant emotion.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Restrict to this domain (omit for all)."},
+            },
+        },
+    },
+    {
+        "name": "emms_mood_trend",
+        "description": "Return the mood trend string (improving/declining/stable/volatile/unknown) from the last trace_mood call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -3425,6 +3472,103 @@ class EMCPServer:
         gaps = self.emms.knowledge_gaps()
         return {"ok": True, "knowledge_gaps": gaps, "count": len(gaps)}
 
+    # ------------------------------------------------------------------
+    # v0.25.0 handlers
+    # ------------------------------------------------------------------
+
+    def _handle_detect_rumination(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain") or None
+        report = self.emms.detect_rumination(domain=domain)
+        return {
+            "ok": True,
+            "total_clusters": report.total_clusters,
+            "most_ruminative_domain": report.most_ruminative_domain,
+            "overall_rumination_score": report.overall_rumination_score,
+            "duration_seconds": report.duration_seconds,
+            "clusters": [
+                {
+                    "id": c.id,
+                    "domain": c.domain,
+                    "cluster_size": c.cluster_size,
+                    "rumination_score": c.rumination_score,
+                    "mean_negativity": c.mean_negativity,
+                    "theme_tokens": c.theme_tokens,
+                    "memory_ids": c.memory_ids,
+                    "resolution_hint": c.resolution_hint,
+                }
+                for c in report.clusters
+            ],
+        }
+
+    def _handle_most_ruminative_theme(self, args: dict[str, Any]) -> dict[str, Any]:
+        self.emms.detect_rumination()
+        cluster = self.emms.most_ruminative_theme()
+        if cluster is None:
+            return {"ok": True, "found": False, "cluster": None}
+        return {
+            "ok": True,
+            "found": True,
+            "cluster": {
+                "id": cluster.id,
+                "domain": cluster.domain,
+                "cluster_size": cluster.cluster_size,
+                "rumination_score": cluster.rumination_score,
+                "theme_tokens": cluster.theme_tokens,
+                "resolution_hint": cluster.resolution_hint,
+            },
+        }
+
+    def _handle_assess_efficacy(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain") or None
+        report = self.emms.assess_efficacy(domain=domain)
+        return {
+            "ok": True,
+            "total_domains": report.total_domains,
+            "highest_efficacy_domain": report.highest_efficacy_domain,
+            "lowest_efficacy_domain": report.lowest_efficacy_domain,
+            "mean_efficacy": report.mean_efficacy,
+            "duration_seconds": report.duration_seconds,
+            "profiles": [
+                {
+                    "domain": p.domain,
+                    "efficacy_score": p.efficacy_score,
+                    "success_count": p.success_count,
+                    "failure_count": p.failure_count,
+                    "trending": p.trending,
+                    "recent_themes": p.recent_themes,
+                }
+                for p in report.profiles
+            ],
+        }
+
+    def _handle_trace_mood(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain = args.get("domain") or None
+        report = self.emms.trace_mood(domain=domain)
+        return {
+            "ok": True,
+            "total_memories": report.total_memories,
+            "mean_valence": report.mean_valence,
+            "volatility": report.volatility,
+            "trend": report.trend,
+            "emotional_range": report.emotional_range,
+            "dominant_emotion": report.dominant_emotion,
+            "duration_seconds": report.duration_seconds,
+            "segments": [
+                {
+                    "segment_index": s.segment_index,
+                    "mean_valence": s.mean_valence,
+                    "valence_std": s.valence_std,
+                    "memory_count": s.memory_count,
+                    "label": s.label,
+                }
+                for s in report.segments
+            ],
+        }
+
+    def _handle_mood_trend(self, args: dict[str, Any]) -> dict[str, Any]:
+        trend = self.emms.mood_trend()
+        return {"ok": True, "trend": trend}
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -3552,4 +3696,10 @@ class EMCPServer:
         "emms_synthesize_wisdom": _handle_synthesize_wisdom,
         "emms_evolve_knowledge": _handle_evolve_knowledge,
         "emms_knowledge_gaps": _handle_knowledge_gaps,
+        # v0.25.0 tools
+        "emms_detect_rumination": _handle_detect_rumination,
+        "emms_most_ruminative_theme": _handle_most_ruminative_theme,
+        "emms_assess_efficacy": _handle_assess_efficacy,
+        "emms_trace_mood": _handle_trace_mood,
+        "emms_mood_trend": _handle_mood_trend,
     }

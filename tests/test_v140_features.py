@@ -606,7 +606,7 @@ class TestMCPV140:
 
     def test_tool_count_is_57(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
-        assert len(_TOOL_DEFINITIONS) == 107
+        assert len(_TOOL_DEFINITIONS) == 112
 
     def test_v140_tools_in_definitions(self):
         from emms.adapters.mcp_server import _TOOL_DEFINITIONS
@@ -679,7 +679,7 @@ class TestV140Exports:
 
     def test_version_is_0_14_0(self):
         import emms
-        assert emms.__version__ == "0.24.0"
+        assert emms.__version__ == "0.25.0"
 
     def test_episodic_buffer_exported(self):
         from emms import EpisodicBuffer

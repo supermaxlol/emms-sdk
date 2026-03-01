@@ -799,7 +799,7 @@ class TestMCPV210:
 
     def test_tool_count_is_92(self):
         server = self._get_server()
-        assert len(server.tool_definitions) == 107
+        assert len(server.tool_definitions) == 112
 
     def test_emms_build_perspectives_callable(self):
         server = self._get_server()
@@ -862,7 +862,7 @@ class TestV210Exports:
 
     def test_version_is_0_21_0(self):
         import emms
-        assert emms.__version__ == "0.24.0"
+        assert emms.__version__ == "0.25.0"
 
     def test_perspective_taker_exported(self):
         from emms import PerspectiveTaker

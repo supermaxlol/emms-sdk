@@ -2340,6 +2340,103 @@ def cmd_knowledge_gaps(args: argparse.Namespace) -> None:
             print("No knowledge gaps detected.")
 
 
+# ---------------------------------------------------------------------------
+# v0.25.0 commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_detect_rumination(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.detect_rumination(domain=getattr(args, "domain", None) or None)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_clusters": report.total_clusters,
+            "most_ruminative_domain": report.most_ruminative_domain,
+            "overall_rumination_score": report.overall_rumination_score,
+            "clusters": [
+                {"id": c.id, "domain": c.domain, "cluster_size": c.cluster_size,
+                 "rumination_score": c.rumination_score, "theme_tokens": c.theme_tokens,
+                 "resolution_hint": c.resolution_hint}
+                for c in report.clusters
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_most_ruminative_theme(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.detect_rumination()
+    cluster = agent.most_ruminative_theme()
+    if getattr(args, "json", False):
+        if cluster is None:
+            print(json.dumps({"found": False, "cluster": None}))
+        else:
+            print(json.dumps({
+                "found": True,
+                "id": cluster.id, "domain": cluster.domain,
+                "rumination_score": cluster.rumination_score,
+                "theme_tokens": cluster.theme_tokens,
+                "resolution_hint": cluster.resolution_hint,
+            }))
+    else:
+        if cluster is None:
+            print("No rumination clusters detected.")
+        else:
+            print(cluster.summary())
+
+
+def cmd_assess_efficacy(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.assess_efficacy(domain=getattr(args, "domain", None) or None)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_domains": report.total_domains,
+            "highest_efficacy_domain": report.highest_efficacy_domain,
+            "lowest_efficacy_domain": report.lowest_efficacy_domain,
+            "mean_efficacy": report.mean_efficacy,
+            "profiles": [
+                {"domain": p.domain, "efficacy_score": p.efficacy_score,
+                 "trending": p.trending, "success_count": p.success_count,
+                 "failure_count": p.failure_count}
+                for p in report.profiles
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_trace_mood(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    report = agent.trace_mood(domain=getattr(args, "domain", None) or None)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "total_memories": report.total_memories,
+            "mean_valence": report.mean_valence,
+            "volatility": report.volatility,
+            "trend": report.trend,
+            "emotional_range": report.emotional_range,
+            "dominant_emotion": report.dominant_emotion,
+            "segments": [
+                {"segment_index": s.segment_index, "mean_valence": s.mean_valence,
+                 "label": s.label, "memory_count": s.memory_count}
+                for s in report.segments
+            ],
+        }))
+    else:
+        print(report.summary())
+
+
+def cmd_mood_trend(args: argparse.Namespace) -> None:
+    agent = _get_emms(args.memory)
+    agent.trace_mood()
+    trend = agent.mood_trend()
+    if getattr(args, "json", False):
+        print(json.dumps({"trend": trend}))
+    else:
+        print(f"Mood trend: {trend}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="emms",
@@ -3192,6 +3289,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_kg = sub.add_parser("knowledge-gaps",
                            help="Return domains with fewer memories than the gap threshold.")
     p_kg.set_defaults(func=cmd_knowledge_gaps)
+
+    # v0.25.0 commands
+    # detect-rumination
+    p_dr = sub.add_parser("detect-rumination",
+                           help="Detect repetitive thought clusters in memory via token similarity.")
+    p_dr.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_dr.set_defaults(func=cmd_detect_rumination)
+
+    # most-ruminative-theme
+    p_mrt = sub.add_parser("most-ruminative-theme",
+                            help="Return the rumination cluster with the highest score.")
+    p_mrt.set_defaults(func=cmd_most_ruminative_theme)
+
+    # assess-efficacy
+    p_ae = sub.add_parser("assess-efficacy",
+                           help="Assess domain-specific self-efficacy from outcome language.")
+    p_ae.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_ae.set_defaults(func=cmd_assess_efficacy)
+
+    # trace-mood
+    p_tm = sub.add_parser("trace-mood",
+                           help="Trace temporal emotional valence evolution across memory segments.")
+    p_tm.add_argument("--domain", default=None, help="Restrict to this domain.")
+    p_tm.set_defaults(func=cmd_trace_mood)
+
+    # mood-trend
+    p_mt = sub.add_parser("mood-trend",
+                           help="Return the mood trend from the last trace-mood call.")
+    p_mt.set_defaults(func=cmd_mood_trend)
 
     return parser
 

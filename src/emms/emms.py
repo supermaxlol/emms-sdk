@@ -3890,3 +3890,117 @@ class EMMS:
             return None
         best = max(engine._domains, key=lambda kd: kd.consolidation_score)
         return best.domain
+
+    # ------------------------------------------------------------------
+    # v0.25.0 — RuminationDetector
+    # ------------------------------------------------------------------
+
+    def _get_rumination_detector(self) -> "Any":
+        if not hasattr(self, "_rumination_detector"):
+            from emms.memory.rumination import RuminationDetector
+            self._rumination_detector = RuminationDetector(memory=self.memory)
+        return self._rumination_detector
+
+    def detect_rumination(self, domain: "Optional[str]" = None) -> "Any":
+        """Detect repetitive thought clusters in memory.
+
+        Args:
+            domain: Restrict to this domain (``None`` = all).
+
+        Returns:
+            :class:`RuminationReport` with clusters sorted by rumination_score.
+        """
+        return self._get_rumination_detector().detect(domain=domain)
+
+    def rumination_themes(self) -> "list[str]":
+        """Return the union of theme tokens across detected rumination clusters.
+
+        Returns:
+            Deduplicated list of recurring theme tokens.
+        """
+        return self._get_rumination_detector().rumination_themes()
+
+    def most_ruminative_theme(self) -> "Any":
+        """Return the rumination cluster with the highest score, or ``None``.
+
+        Returns:
+            :class:`RuminationCluster` or ``None``.
+        """
+        return self._get_rumination_detector().most_ruminative_cluster()
+
+    # ------------------------------------------------------------------
+    # v0.25.0 — SelfEfficacyAssessor
+    # ------------------------------------------------------------------
+
+    def _get_efficacy_assessor(self) -> "Any":
+        if not hasattr(self, "_efficacy_assessor"):
+            from emms.memory.efficacy import SelfEfficacyAssessor
+            self._efficacy_assessor = SelfEfficacyAssessor(memory=self.memory)
+        return self._efficacy_assessor
+
+    def assess_efficacy(self, domain: "Optional[str]" = None) -> "Any":
+        """Assess domain-specific self-efficacy from outcome language in memory.
+
+        Args:
+            domain: Restrict to this domain (``None`` = all domains).
+
+        Returns:
+            :class:`EfficacyReport` with profiles sorted by efficacy_score desc.
+        """
+        return self._get_efficacy_assessor().assess(domain=domain)
+
+    def efficacy_for_domain(self, domain: str) -> "Any":
+        """Return the efficacy profile for a specific domain.
+
+        Args:
+            domain: Domain name to query.
+
+        Returns:
+            :class:`EfficacyProfile`, or ``None`` if not found.
+        """
+        return self._get_efficacy_assessor().efficacy_for_domain(domain)
+
+    def highest_efficacy_domain(self) -> "Any":
+        """Return the domain name with the highest efficacy score, or ``None``.
+
+        Returns:
+            Domain name string, or ``None``.
+        """
+        return self._get_efficacy_assessor().highest_efficacy_domain()
+
+    # ------------------------------------------------------------------
+    # v0.25.0 — MoodDynamics
+    # ------------------------------------------------------------------
+
+    def _get_mood_dynamics(self) -> "Any":
+        if not hasattr(self, "_mood_dynamics"):
+            from emms.memory.mood_trajectory import MoodDynamics
+            self._mood_dynamics = MoodDynamics(memory=self.memory)
+        return self._mood_dynamics
+
+    def trace_mood(self, domain: "Optional[str]" = None) -> "Any":
+        """Trace temporal emotional valence evolution across memory segments.
+
+        Args:
+            domain: Restrict to this domain (``None`` = all).
+
+        Returns:
+            :class:`MoodReport` with segment arc and trend.
+        """
+        return self._get_mood_dynamics().trace(domain=domain)
+
+    def mood_trend(self) -> str:
+        """Return the mood trend from the last trace_mood call.
+
+        Returns:
+            One of "improving", "declining", "stable", "volatile", or "unknown".
+        """
+        return self._get_mood_dynamics().mood_trend()
+
+    def emotional_arc(self) -> "list[str]":
+        """Return the sequence of segment emotion labels from the last trace_mood.
+
+        Returns:
+            List of label strings, or empty list if trace_mood not yet called.
+        """
+        return self._get_mood_dynamics().emotional_arc()

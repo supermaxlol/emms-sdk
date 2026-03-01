@@ -806,7 +806,7 @@ class TestMCPV200:
 
     def test_tool_count_is_87(self):
         server = self._get_server()
-        assert len(server.tool_definitions) == 107
+        assert len(server.tool_definitions) == 112
 
     def test_emms_build_causal_map_callable(self):
         server = self._get_server()
@@ -862,7 +862,7 @@ class TestV200Exports:
 
     def test_version_is_0_20_0(self):
         import emms
-        assert emms.__version__ == "0.24.0"
+        assert emms.__version__ == "0.25.0"
 
     def test_causal_mapper_exported(self):
         from emms import CausalMapper

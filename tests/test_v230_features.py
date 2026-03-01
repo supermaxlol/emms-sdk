@@ -757,7 +757,7 @@ class TestMCPV230:
 
     def test_tool_count_is_102(self):
         server = self._make_server()
-        assert len(server.tool_definitions) == 107, (
+        assert len(server.tool_definitions) == 112, (
             f"Expected 102 tools, got {len(server.tool_definitions)}"
         )
 
@@ -819,7 +819,7 @@ class TestMCPV230:
 class TestV230Exports:
 
     def test_version_is_0_23_0(self):
-        assert emms_pkg.__version__ == "0.24.0"
+        assert emms_pkg.__version__ == "0.25.0"
 
     def test_value_mapper_importable(self):
         from emms import ValueMapper
