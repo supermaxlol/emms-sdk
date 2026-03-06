@@ -1,0 +1,6 @@
+.emms_state.json
+.emms_state_graph.json
+.emms_state_procedures.json
+.emms_state_srs.json
+.emms_state_consciousness.json
+scripts/__pycache__/
