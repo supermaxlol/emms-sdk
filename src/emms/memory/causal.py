@@ -68,6 +68,25 @@ class CausalEdge:
             f"strength={self.strength:.3f}  memories={len(self.memory_ids)}"
         )
 
+    def to_dict(self) -> dict:
+        return {
+            "source": self.source,
+            "target": self.target,
+            "relation": self.relation,
+            "strength": self.strength,
+            "memory_ids": list(self.memory_ids),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CausalEdge":
+        return cls(
+            source=d["source"],
+            target=d["target"],
+            relation=d["relation"],
+            strength=d["strength"],
+            memory_ids=d["memory_ids"],
+        )
+
 
 @dataclass
 class CausalPath:
@@ -314,6 +333,45 @@ class CausalMapper:
             {src: len(out) for src, out in self._graph.items()}
         )
         return [c for c, _ in out_degree.most_common(n)]
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save_state(self, path) -> None:
+        import json, os, tempfile
+        from pathlib import Path as _P
+        path = _P(path)
+        edges = []
+        for src_dict in self._graph.values():
+            for edge in src_dict.values():
+                edges.append(edge.to_dict())
+        data = {"version": "0.19.0", "edges": edges}
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                json.dump(data, f, indent=2); f.flush(); os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try: os.unlink(tmp_path)
+            except OSError: pass
+            raise
+
+    def load_state(self, path) -> bool:
+        import json
+        from pathlib import Path as _P
+        p = _P(path)
+        if not p.exists(): return False
+        try:
+            data = json.loads(p.read_text())
+            self._graph.clear()
+            for ed in data.get("edges", []):
+                edge = CausalEdge.from_dict(ed)
+                if edge.source not in self._graph:
+                    self._graph[edge.source] = {}
+                self._graph[edge.source][edge.target] = edge
+            return True
+        except Exception: return False
 
     # ------------------------------------------------------------------
     # Internal helpers

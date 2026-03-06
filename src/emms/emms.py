@@ -220,7 +220,7 @@ class EMMS:
             "tier": mem_item.tier.value,
             "crossmodal_modalities": list(cm_result.keys()),
             "identity_experiences": id_result["total_experiences"],
-            "vector_indexed": self.vector_store is not None,
+            "vector_indexed": self.memory._vec_index is not None,
             "graph_entities": graph_data.get("entities_found", 0),
             "consciousness": bool(consciousness_data),
             "elapsed_ms": round(elapsed * 1000, 2),
@@ -315,10 +315,52 @@ class EMMS:
             # Save SRS state
             srs_path = memory_path.parent / (memory_path.stem + "_srs.json")
             self.srs.save_state(srs_path)
+            # Save goal stack
+            if hasattr(self, "_goal_stack"):
+                goals_path = memory_path.parent / (memory_path.stem + "_goals.json")
+                self._goal_stack.save_state(goals_path)
+            # Save prospective memory (intentions)
+            if hasattr(self, "_prospective"):
+                intentions_path = memory_path.parent / (memory_path.stem + "_intentions.json")
+                self._prospective.save(intentions_path)
+            # Save episodic buffer
+            if hasattr(self, "_episodic_buffer"):
+                ep_path = memory_path.parent / (memory_path.stem + "_episodes.json")
+                self._episodic_buffer.save(ep_path)
+            # Save predictive engine
+            if hasattr(self, "_predictive_engine"):
+                pred_path = memory_path.parent / (memory_path.stem + "_predictions.json")
+                self._predictive_engine.save_state(pred_path)
+            # Save source monitor
+            if hasattr(self, "_source_monitor"):
+                src_path = memory_path.parent / (memory_path.stem + "_sources.json")
+                self._source_monitor.save_state(src_path)
+            # Save trust ledger
+            if hasattr(self, "_trust_ledger"):
+                trust_path = memory_path.parent / (memory_path.stem + "_trust.json")
+                self._trust_ledger.save_state(trust_path)
+            # Save causal mapper
+            if hasattr(self, "_causal_mapper"):
+                causal_path = memory_path.parent / (memory_path.stem + "_causal.json")
+                self._causal_mapper.save_state(causal_path)
+            # Save belief reviser
+            if hasattr(self, "_belief_reviser"):
+                belief_path = memory_path.parent / (memory_path.stem + "_beliefs.json")
+                self._belief_reviser.save_state(belief_path)
+            # Save curiosity engine
+            if hasattr(self, "_curiosity_engine"):
+                curiosity_path = memory_path.parent / (memory_path.stem + "_curiosity.json")
+                self._curiosity_engine.save_state(curiosity_path)
             # Save consciousness state alongside memory
             if self._consciousness_enabled:
                 consciousness_path = memory_path.parent / (memory_path.stem + "_consciousness.json")
                 self._save_consciousness_state(consciousness_path)
+
+    @property
+    def last_saved_at(self) -> float | None:
+        """Timestamp (Unix seconds) of when the memory state was last saved to disk.
+        Available after load() is called. Used by the wake protocol for elapsed-time awareness."""
+        return getattr(self.memory, "last_saved_at", None)
 
     def load(self, memory_path: str | Path | None = None) -> None:
         """Load memory state, graph state, procedural memory, consciousness, and SRS from disk."""
@@ -338,6 +380,64 @@ class EMMS:
             srs_path = memory_path.parent / (memory_path.stem + "_srs.json")
             if srs_path.exists():
                 self.srs.load_state(srs_path)
+            # Load goal stack if it exists
+            goals_path = memory_path.parent / (memory_path.stem + "_goals.json")
+            if goals_path.exists():
+                self._get_goal_stack().load_state(goals_path)
+            # Load prospective memory (intentions) if it exists
+            intentions_path = memory_path.parent / (memory_path.stem + "_intentions.json")
+            if intentions_path.exists():
+                self.enable_prospective_memory()
+                self._prospective.load(intentions_path)
+            # Load episodic buffer if it exists
+            ep_path = memory_path.parent / (memory_path.stem + "_episodes.json")
+            if ep_path.exists():
+                from emms.memory.episodic import EpisodicBuffer
+                if not hasattr(self, "_episodic_buffer"):
+                    self._episodic_buffer = EpisodicBuffer()
+                self._episodic_buffer.load(ep_path)
+            # Load predictive engine if it exists
+            pred_path = memory_path.parent / (memory_path.stem + "_predictions.json")
+            if pred_path.exists():
+                from emms.memory.prediction import PredictiveEngine
+                if not hasattr(self, "_predictive_engine"):
+                    self._predictive_engine = PredictiveEngine(memory=self.memory)
+                self._predictive_engine.load_state(pred_path)
+            # Load source monitor if it exists
+            src_path = memory_path.parent / (memory_path.stem + "_sources.json")
+            if src_path.exists():
+                from emms.memory.source_monitor import SourceMonitor
+                if not hasattr(self, "_source_monitor"):
+                    self._source_monitor = SourceMonitor(memory=self.memory)
+                self._source_monitor.load_state(src_path)
+            # Load trust ledger if it exists
+            trust_path = memory_path.parent / (memory_path.stem + "_trust.json")
+            if trust_path.exists():
+                from emms.memory.trust import TrustLedger
+                if not hasattr(self, "_trust_ledger"):
+                    self._trust_ledger = TrustLedger(memory=self.memory)
+                self._trust_ledger.load_state(trust_path)
+            # Load causal mapper if it exists
+            causal_path = memory_path.parent / (memory_path.stem + "_causal.json")
+            if causal_path.exists():
+                from emms.memory.causal import CausalMapper
+                if not hasattr(self, "_causal_mapper"):
+                    self._causal_mapper = CausalMapper(memory=self.memory)
+                self._causal_mapper.load_state(causal_path)
+            # Load belief reviser if it exists
+            belief_path = memory_path.parent / (memory_path.stem + "_beliefs.json")
+            if belief_path.exists():
+                from emms.memory.belief_revision import BeliefReviser
+                if not hasattr(self, "_belief_reviser"):
+                    self._belief_reviser = BeliefReviser(memory=self.memory)
+                self._belief_reviser.load_state(belief_path)
+            # Load curiosity engine if it exists
+            curiosity_path = memory_path.parent / (memory_path.stem + "_curiosity.json")
+            if curiosity_path.exists():
+                from emms.memory.curiosity import CuriosityEngine
+                if not hasattr(self, "_curiosity_engine"):
+                    self._curiosity_engine = CuriosityEngine(memory=self.memory)
+                self._curiosity_engine.load_state(curiosity_path)
             # Load consciousness state if it exists
             if self._consciousness_enabled:
                 consciousness_path = memory_path.parent / (memory_path.stem + "_consciousness.json")
@@ -683,6 +783,9 @@ class EMMS:
         since: float | None = None,
         until: float | None = None,
         min_confidence: float | None = None,
+        min_importance: float | None = None,
+        sort_by: str = "relevance",
+        concept_tags: "list | None" = None,
     ) -> list[RetrievalResult]:
         """Retrieve with structured pre-filters (namespace, obs_type, time range, confidence…).
 
@@ -700,6 +803,9 @@ class EMMS:
             since=since,
             until=until,
             min_confidence=min_confidence,
+            min_importance=min_importance,
+            sort_by=sort_by,
+            concept_tags=concept_tags,
         )
 
     # ------------------------------------------------------------------

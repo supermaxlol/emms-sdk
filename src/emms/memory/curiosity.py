@@ -26,11 +26,15 @@ enhance hippocampal encoding of subsequently learned information
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, Optional, Union
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +92,33 @@ class ExplorationGoal:
             f"ExplorationGoal [{self.domain}] urgency={self.urgency:.2f} "
             f"type={self.gap_type}\n"
             f"  Q: {self.question}"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict."""
+        return {
+            "id": self.id,
+            "question": self.question,
+            "domain": self.domain,
+            "urgency": self.urgency,
+            "gap_type": self.gap_type,
+            "supporting_memory_ids": list(self.supporting_memory_ids),
+            "created_at": self.created_at,
+            "explored": self.explored,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ExplorationGoal":
+        """Deserialize from a plain dict."""
+        return cls(
+            id=d["id"],
+            question=d["question"],
+            domain=d["domain"],
+            urgency=d["urgency"],
+            gap_type=d["gap_type"],
+            supporting_memory_ids=list(d.get("supporting_memory_ids", [])),
+            created_at=d.get("created_at", time.time()),
+            explored=d.get("explored", False),
         )
 
 
@@ -245,6 +276,46 @@ class CuriosityEngine:
             return False
         goal.explored = True
         return True
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save_state(self, path: Union[str, Path]) -> None:
+        """Persist ``_goals`` to *path* using atomic write."""
+        path = Path(path)
+        state = {
+            gid: goal.to_dict()
+            for gid, goal in self._goals.items()
+        }
+        data = json.dumps(state, indent=2, default=str).encode("utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        closed = False
+        try:
+            os.write(fd, data)
+            os.fsync(fd)
+            os.close(fd)
+            closed = True
+            os.replace(tmp, path)
+        except BaseException:
+            if not closed:
+                os.close(fd)
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
+
+    def load_state(self, path: Union[str, Path]) -> None:
+        """Restore ``_goals`` from *path* (no-op if file missing)."""
+        path = Path(path)
+        if not path.exists():
+            return
+        with open(path, "r", encoding="utf-8") as fh:
+            raw: dict[str, Any] = json.load(fh)
+        self._goals = {
+            gid: ExplorationGoal.from_dict(d)
+            for gid, d in raw.items()
+        }
 
     # ------------------------------------------------------------------
     # Internal helpers

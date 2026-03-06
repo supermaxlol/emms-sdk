@@ -291,9 +291,25 @@ class EpisodicBuffer:
         return sorted(self._episodes.values(), key=lambda e: e.opened_at)
 
     def save(self, path: str | Path) -> None:
-        """Persist episodes to a JSON file."""
+        """Persist episodes to a JSON file (atomic write)."""
+        import os
+        import tempfile
+
+        path = Path(path)
         data = [e.to_dict() for e in self.all_episodes()]
-        Path(path).write_text(json.dumps(data, indent=2))
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def load(self, path: str | Path) -> bool:
         """Load episodes from a JSON file.

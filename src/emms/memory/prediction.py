@@ -73,6 +73,25 @@ class Prediction:
             f"  {self.id[:12]}: {self.content[:80]}"
         )
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "content": self.content, "domain": self.domain,
+            "basis_memory_ids": list(self.basis_memory_ids),
+            "confidence": self.confidence, "created_at": self.created_at,
+            "outcome": self.outcome, "outcome_note": self.outcome_note,
+            "surprise_score": self.surprise_score, "resolved_at": self.resolved_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Prediction":
+        return cls(
+            id=d["id"], content=d["content"], domain=d.get("domain", "general"),
+            basis_memory_ids=list(d.get("basis_memory_ids", [])),
+            confidence=d.get("confidence", 0.5), created_at=d.get("created_at", 0.0),
+            outcome=d.get("outcome", "pending"), outcome_note=d.get("outcome_note", ""),
+            surprise_score=d.get("surprise_score", 0.0), resolved_at=d.get("resolved_at"),
+        )
+
 
 @dataclass
 class PredictionReport:
@@ -248,6 +267,49 @@ class PredictiveEngine:
             dom: round(sum(scores) / len(scores), 4)
             for dom, scores in domain_surprises.items()
         }
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save_state(self, path: "str | Path") -> None:
+        """Persist predictions to a JSON file (atomic write)."""
+        import json
+        import os
+        import tempfile
+        from pathlib import Path as _P
+
+        path = _P(path)
+        data = {"version": "0.18.0", "predictions": [p.to_dict() for p in self._predictions.values()]}
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    def load_state(self, path: "str | Path") -> bool:
+        """Restore predictions from a JSON file."""
+        import json
+        from pathlib import Path as _P
+
+        p = _P(path)
+        if not p.exists():
+            return False
+        try:
+            data = json.loads(p.read_text())
+            preds = data.get("predictions", data if isinstance(data, list) else [])
+            self._predictions = {d["id"]: Prediction.from_dict(d) for d in preds}
+            return True
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Internal helpers

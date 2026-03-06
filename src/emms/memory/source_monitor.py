@@ -66,6 +66,22 @@ class SourceTag:
             f"note={self.provenance_note[:60]!r}"
         )
 
+    def to_dict(self) -> dict:
+        return {
+            "memory_id": self.memory_id, "source_type": self.source_type,
+            "confidence": self.confidence, "provenance_note": self.provenance_note,
+            "tagged_at": self.tagged_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SourceTag":
+        return cls(
+            memory_id=d["memory_id"], source_type=d["source_type"],
+            confidence=d.get("confidence", 0.5),
+            provenance_note=d.get("provenance_note", ""),
+            tagged_at=d.get("tagged_at", 0.0),
+        )
+
 
 @dataclass
 class SourceAuditEntry:
@@ -288,6 +304,49 @@ class SourceMonitor:
         for tag in self._tags.values():
             counter[tag.source_type] = counter.get(tag.source_type, 0) + 1
         return dict(sorted(counter.items(), key=lambda x: x[1], reverse=True))
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save_state(self, path: "str | Path") -> None:
+        """Persist source tags to a JSON file (atomic write)."""
+        import json
+        import os
+        import tempfile
+        from pathlib import Path as _P
+
+        path = _P(path)
+        data = {"version": "0.15.0", "tags": [t.to_dict() for t in self._tags.values()]}
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    def load_state(self, path: "str | Path") -> bool:
+        """Restore source tags from a JSON file."""
+        import json
+        from pathlib import Path as _P
+
+        p = _P(path)
+        if not p.exists():
+            return False
+        try:
+            data = json.loads(p.read_text())
+            tags = data.get("tags", data if isinstance(data, list) else [])
+            self._tags = {d["memory_id"]: SourceTag.from_dict(d) for d in tags}
+            return True
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Internal helpers

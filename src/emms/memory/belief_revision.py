@@ -62,6 +62,31 @@ class RevisionRecord:
             f"  resolution:  {self.new_content[:80]}"
         )
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "trigger_memory_id": self.trigger_memory_id,
+            "conflicting_memory_id": self.conflicting_memory_id,
+            "revision_type": self.revision_type,
+            "conflict_score": self.conflict_score,
+            "new_content": self.new_content,
+            "new_memory_id": self.new_memory_id,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "RevisionRecord":
+        return cls(
+            id=d["id"],
+            trigger_memory_id=d["trigger_memory_id"],
+            conflicting_memory_id=d["conflicting_memory_id"],
+            revision_type=d["revision_type"],
+            conflict_score=d["conflict_score"],
+            new_content=d["new_content"],
+            new_memory_id=d.get("new_memory_id"),
+            created_at=d.get("created_at", 0.0),
+        )
+
 
 @dataclass
 class RevisionReport:
@@ -202,6 +227,36 @@ class BeliefReviser:
             List of :class:`RevisionRecord` sorted by ``created_at`` descending.
         """
         return sorted(self._history, key=lambda r: r.created_at, reverse=True)
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save_state(self, path) -> None:
+        import json, os, tempfile
+        from pathlib import Path as _P
+        path = _P(path)
+        data = {"version": "0.16.0", "history": [r.to_dict() for r in self._history]}
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                json.dump(data, f, indent=2); f.flush(); os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try: os.unlink(tmp_path)
+            except OSError: pass
+            raise
+
+    def load_state(self, path) -> bool:
+        import json
+        from pathlib import Path as _P
+        p = _P(path)
+        if not p.exists(): return False
+        try:
+            data = json.loads(p.read_text())
+            self._history = [RevisionRecord.from_dict(d) for d in data.get("history", [])]
+            return True
+        except Exception: return False
 
     # ------------------------------------------------------------------
     # Internal helpers

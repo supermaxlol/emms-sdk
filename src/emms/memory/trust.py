@@ -58,6 +58,25 @@ class TrustScore:
             f"count={self.memory_count}  stability={self.valence_stability:.3f}"
         )
 
+    def to_dict(self) -> dict:
+        return {
+            "source": self.source,
+            "trust": self.trust,
+            "memory_count": self.memory_count,
+            "mean_importance": self.mean_importance,
+            "valence_stability": self.valence_stability,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TrustScore":
+        return cls(
+            source=d["source"],
+            trust=d["trust"],
+            memory_count=d["memory_count"],
+            mean_importance=d["mean_importance"],
+            valence_stability=d["valence_stability"],
+        )
+
 
 @dataclass
 class TrustReport:
@@ -177,6 +196,37 @@ class TrustLedger:
             n: Number of sources to return (default 5).
         """
         return sorted(self._scores.values(), key=lambda s: s.trust)[:n]
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save_state(self, path) -> None:
+        import json, os, tempfile
+        from pathlib import Path as _P
+        path = _P(path)
+        data = {"version": "0.15.0", "scores": [s.to_dict() for s in self._scores.values()]}
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                json.dump(data, f, indent=2); f.flush(); os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try: os.unlink(tmp_path)
+            except OSError: pass
+            raise
+
+    def load_state(self, path) -> bool:
+        import json
+        from pathlib import Path as _P
+        p = _P(path)
+        if not p.exists(): return False
+        try:
+            data = json.loads(p.read_text())
+            scores = data.get("scores", data if isinstance(data, list) else [])
+            self._scores = {d["source"]: TrustScore.from_dict(d) for d in scores}
+            return True
+        except Exception: return False
 
     # ------------------------------------------------------------------
     # Internal helpers

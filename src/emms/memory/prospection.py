@@ -245,13 +245,29 @@ class ProspectiveMemory:
         )
 
     def save(self, path: str | Path) -> None:
-        """Persist all intentions to a JSON file.
+        """Persist all intentions to a JSON file (atomic write).
 
         Args:
             path: File path to write to.
         """
+        import os
+        import tempfile
+
+        path = Path(path)
         data = [i.to_dict() for i in self._intentions.values()]
-        Path(path).write_text(json.dumps(data, indent=2))
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def load(self, path: str | Path) -> bool:
         """Load intentions from a JSON file.

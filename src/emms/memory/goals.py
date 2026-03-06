@@ -25,9 +25,11 @@ the rest of the brain.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 
@@ -65,6 +67,39 @@ class Goal:
     def is_resolved(self) -> bool:
         """Return True if this goal has reached a terminal state."""
         return self.status in ("completed", "failed", "abandoned")
+
+    def to_dict(self) -> dict:
+        """Serialize to a plain dict for JSON persistence."""
+        return {
+            "id": self.id,
+            "content": self.content,
+            "domain": self.domain,
+            "priority": self.priority,
+            "status": self.status,
+            "parent_id": self.parent_id,
+            "deadline": self.deadline,
+            "created_at": self.created_at,
+            "resolved_at": self.resolved_at,
+            "supporting_memory_ids": list(self.supporting_memory_ids),
+            "outcome_note": self.outcome_note,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Goal":
+        """Reconstruct a Goal from a serialized dict."""
+        return cls(
+            id=d["id"],
+            content=d["content"],
+            domain=d.get("domain", "general"),
+            priority=d.get("priority", 0.5),
+            status=d.get("status", "pending"),
+            parent_id=d.get("parent_id"),
+            deadline=d.get("deadline"),
+            created_at=d.get("created_at", time.time()),
+            resolved_at=d.get("resolved_at"),
+            supporting_memory_ids=list(d.get("supporting_memory_ids", [])),
+            outcome_note=d.get("outcome_note", ""),
+        )
 
 
 @dataclass
@@ -284,3 +319,46 @@ class GoalStack:
             abandoned=sum(1 for g in all_goals if g.status == "abandoned"),
             goals=sorted(all_goals, key=lambda g: g.priority, reverse=True),
         )
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save_state(self, path: str | Path) -> None:
+        """Serialize all goals to a JSON file (atomic write)."""
+        import os
+        import tempfile
+
+        path = Path(path)
+        data = {
+            "version": "0.17.0",
+            "saved_at": time.time(),
+            "goals": [g.to_dict() for g in self._goals.values()],
+        }
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=path.parent, suffix=".tmp"
+        )
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    def load_state(self, path: str | Path) -> None:
+        """Restore goals from a JSON file."""
+        path = Path(path)
+        if not path.exists():
+            return
+        with open(path) as f:
+            data = json.load(f)
+        self._goals.clear()
+        for gd in data.get("goals", []):
+            goal = Goal.from_dict(gd)
+            self._goals[goal.id] = goal
