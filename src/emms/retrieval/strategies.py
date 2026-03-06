@@ -68,6 +68,10 @@ class SemanticStrategy:
 
     name = "semantic"
 
+    # Max embedding entries to keep per retriever instance.
+    # 384-dim float64 ≈ 3 KB each → 2 000 entries ≈ 6 MB ceiling.
+    _CACHE_MAX = 2_000
+
     def __init__(self, embedder: EmbeddingProvider | None = None):
         self.embedder = embedder
         self._cache: dict[str, list[float]] = {}
@@ -94,6 +98,9 @@ class SemanticStrategy:
             item_vec = self._cache.get(item_id)
         if item_vec is None:
             item_vec = self.embedder.embed(item.experience.content)
+            # Evict oldest entry when cap reached (insertion-ordered dict)
+            if len(self._cache) >= self._CACHE_MAX:
+                self._cache.pop(next(iter(self._cache)))
             self._cache[item_id] = item_vec
 
         sim = cosine_similarity(query_vec, item_vec)

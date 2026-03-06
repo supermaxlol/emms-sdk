@@ -119,6 +119,9 @@ class MemoryScheduler:
         dedup_interval: float = 600.0,
         pattern_interval: float = 300.0,
         srs_interval: float = 3600.0,
+        dream_interval: float = 3600.0,
+        reflect_interval: float = 1800.0,
+        self_model_interval: float = 900.0,
         tick: float = 1.0,
     ) -> None:
         self.emms = emms
@@ -128,11 +131,15 @@ class MemoryScheduler:
 
         # Built-in jobs
         self._jobs: dict[str, ScheduledJob] = {
-            "consolidation": ScheduledJob("consolidation", consolidation_interval),
-            "ttl_purge":     ScheduledJob("ttl_purge",     ttl_purge_interval),
-            "deduplication": ScheduledJob("deduplication", dedup_interval),
-            "pattern_detection": ScheduledJob("pattern_detection", pattern_interval),
-            "srs_review":    ScheduledJob("srs_review",    srs_interval),
+            "consolidation":    ScheduledJob("consolidation",    consolidation_interval),
+            "ttl_purge":        ScheduledJob("ttl_purge",        ttl_purge_interval),
+            "deduplication":    ScheduledJob("deduplication",    dedup_interval),
+            "pattern_detection":ScheduledJob("pattern_detection",pattern_interval),
+            "srs_review":       ScheduledJob("srs_review",       srs_interval),
+            # Consciousness jobs — run offline cognitive maintenance
+            "dream":            ScheduledJob("dream",            dream_interval),
+            "reflect":          ScheduledJob("reflect",          reflect_interval),
+            "self_model_update":ScheduledJob("self_model_update",self_model_interval),
         }
 
         # Custom job registry: name → async coroutine factory (takes no args)
@@ -275,6 +282,41 @@ class MemoryScheduler:
                 logger.info("Scheduler [srs_review]: %d items due for review", len(due))
                 if due:
                     emms.events.emit("srs.items_due", {"count": len(due), "items": [c.memory_id for c in due[:10]]})
+
+        elif name == "dream":
+            try:
+                result = emms.dream()
+                if result:
+                    logger.info(
+                        "Scheduler [dream]: reinforced=%d weakened=%d pruned=%d",
+                        getattr(result, "reinforced", 0),
+                        getattr(result, "weakened", 0),
+                        getattr(result, "pruned", 0),
+                    )
+                    emms.events.emit("memory.dream_completed", {"result": str(result)[:200]})
+            except Exception as e:
+                logger.warning("Scheduler [dream] error: %s", e)
+
+        elif name == "reflect":
+            try:
+                result = emms.reflect()
+                if result:
+                    logger.info("Scheduler [reflect]: reflection completed")
+                    emms.events.emit("memory.reflection_completed", {"result": str(result)[:200]})
+            except Exception as e:
+                logger.warning("Scheduler [reflect] error: %s", e)
+
+        elif name == "self_model_update":
+            try:
+                result = emms.update_self_model()
+                if result:
+                    logger.info(
+                        "Scheduler [self_model_update]: consistency=%.2f",
+                        result.get("consistency_score", 0) if isinstance(result, dict) else 0,
+                    )
+                    emms.events.emit("identity.self_model_updated", {"result": str(result)[:200]})
+            except Exception as e:
+                logger.warning("Scheduler [self_model_update] error: %s", e)
 
     # ------------------------------------------------------------------
     # Built-in helpers

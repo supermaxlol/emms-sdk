@@ -334,15 +334,20 @@ class HybridRetriever:
         from emms.core.embeddings import cosine_similarity
 
         q_emb = embedder.embed(query)
+        # Use the memory's embedding cache (keyed by experience.id) as the
+        # primary source — MemoryItem has no .embedding attribute.
+        mem_cache = getattr(self.memory, "_embeddings", {})
         raw: list[float] = []
         for item in items:
-            if item.embedding is not None:
-                sim = cosine_similarity(q_emb, item.embedding)
+            stored = mem_cache.get(item.experience.id)
+            if stored is not None:
+                sim = cosine_similarity(q_emb, stored)
             elif hasattr(item.experience, "embedding") and item.experience.embedding is not None:
                 sim = cosine_similarity(q_emb, item.experience.embedding)
             else:
-                # compute on-the-fly
+                # compute on-the-fly and cache for next call
                 i_emb = embedder.embed(item.experience.content)
+                mem_cache[item.experience.id] = i_emb
                 sim = cosine_similarity(q_emb, i_emb)
             # cosine_similarity returns a float in [-1, 1] — clamp to [0, 1]
             raw.append(max(0.0, float(sim)))

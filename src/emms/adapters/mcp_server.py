@@ -82,6 +82,7 @@ Exposed tools
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -98,10 +99,31 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "domain": {"type": "string", "default": "general", "description": "Domain / topic area."},
                 "importance": {"type": "number", "default": 0.5, "description": "0 (low) … 1 (high)."},
                 "title": {"type": "string", "description": "Short title ≤10 words."},
+                "subtitle": {"type": "string", "description": "One-sentence explanation ≤24 words."},
                 "facts": {"type": "array", "items": {"type": "string"}, "description": "Discrete factual bullet points."},
                 "files_read": {"type": "array", "items": {"type": "string"}, "description": "Files read during this event."},
                 "files_modified": {"type": "array", "items": {"type": "string"}, "description": "Files created or edited."},
                 "citations": {"type": "array", "items": {"type": "string"}, "description": "Memory IDs this experience validates."},
+                "emotional_valence": {"type": "number", "default": 0.0, "description": "-1 (negative) … +1 (positive) emotional tone."},
+                "obs_type": {
+                    "type": "string",
+                    "enum": ["bugfix", "feature", "refactor", "change", "discovery", "decision"],
+                    "description": "Observation classification — what kind of event this records.",
+                },
+                "concept_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["how-it-works", "why-it-exists", "what-changed", "problem-solution", "gotcha", "pattern", "trade-off"],
+                    },
+                    "description": "Epistemological role tags — how to interpret this memory.",
+                },
+                "confidence": {"type": "number", "default": 1.0, "description": "0 (uncertain) … 1 (fully verified)."},
+                "namespace": {"type": "string", "default": "default", "description": "Project/repo isolation scope — only retrieves within same namespace."},
+                "session_id": {"type": "string", "description": "Conversation session ID for grouping related memories."},
+                "private": {"type": "boolean", "default": False, "description": "Exclude from retrieval and export when True."},
+                "update_mode": {"type": "string", "enum": ["insert", "patch"], "default": "insert", "description": "'insert' appends new memory; 'patch' updates matching memory."},
+                "patch_key": {"type": "string", "description": "When update_mode='patch', match on this key (defaults to title)."},
             },
             "required": ["content"],
         },
@@ -114,6 +136,28 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {
                 "query": {"type": "string", "description": "Natural-language search query."},
                 "max_results": {"type": "integer", "default": 10},
+                "namespace": {"type": "string", "description": "Limit to this namespace/project (omit for all)."},
+                "domain": {"type": "string", "description": "Filter to this domain."},
+                "obs_type": {
+                    "type": "string",
+                    "enum": ["bugfix", "feature", "refactor", "change", "discovery", "decision"],
+                    "description": "Filter to this observation type.",
+                },
+                "concept_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["how-it-works", "why-it-exists", "what-changed", "problem-solution", "gotcha", "pattern", "trade-off"],
+                    },
+                    "description": "Only return memories carrying at least one of these concept tags.",
+                },
+                "min_importance": {"type": "number", "description": "Minimum importance threshold 0–1."},
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["relevance", "recency", "importance"],
+                    "default": "relevance",
+                    "description": "Sort order (most useful when query is empty).",
+                },
             },
             "required": ["query"],
         },
@@ -126,6 +170,20 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {
                 "query": {"type": "string"},
                 "max_results": {"type": "integer", "default": 20},
+                "namespace": {"type": "string", "description": "Limit search to this project namespace."},
+                "obs_type": {
+                    "type": "string",
+                    "enum": ["bugfix", "feature", "refactor", "change", "discovery", "decision"],
+                    "description": "Only return memories of this observation type.",
+                },
+                "concept_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["how-it-works", "why-it-exists", "what-changed", "problem-solution", "gotcha", "pattern", "trade-off"],
+                    },
+                    "description": "Only return memories carrying at least one of these concept tags.",
+                },
             },
             "required": ["query"],
         },
@@ -171,20 +229,39 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "emms_retrieve_filtered",
-        "description": "Retrieve memories with structured filters (namespace, obs_type, domain, time range, confidence).",
+        "description": "Retrieve memories with structured filters (namespace, obs_type, domain, time range, confidence). Query is optional — omit it to do pure filter-based lookup with no semantic ranking.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string"},
+                "query": {"type": "string", "description": "Optional semantic query. Omit for pure filter-based lookup."},
                 "max_results": {"type": "integer", "default": 10},
-                "namespace": {"type": "string"},
+                "namespace": {"type": "string", "description": "Filter to this project/repo namespace."},
+                "obs_type": {
+                    "type": "string",
+                    "enum": ["bugfix", "feature", "refactor", "change", "discovery", "decision"],
+                    "description": "Filter to this observation type.",
+                },
                 "domain": {"type": "string"},
                 "session_id": {"type": "string"},
                 "since": {"type": "number", "description": "Unix timestamp lower bound"},
                 "until": {"type": "number", "description": "Unix timestamp upper bound"},
                 "min_confidence": {"type": "number", "description": "Minimum confidence threshold 0–1"},
+                "min_importance": {"type": "number", "description": "Minimum importance threshold 0–1"},
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["relevance", "recency", "importance"],
+                    "description": "Sort order when query is empty: 'relevance' (importance×confidence), 'recency' (newest first), 'importance' (importance descending). Ignored when a query is provided.",
+                },
+                "concept_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["how-it-works", "why-it-exists", "what-changed", "problem-solution", "gotcha", "pattern", "trade-off"],
+                    },
+                    "description": "Only return memories that carry at least one of these concept tags.",
+                },
             },
-            "required": ["query"],
+            "required": [],
         },
     },
     {
@@ -775,10 +852,11 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "memory_id": {"type": "string", "description": "Suppress a specific memory by ID."},
+                "memory_id": {"type": "string", "description": "Suppress (or hard-delete) a specific memory by ID."},
                 "domain": {"type": "string", "description": "Suppress all memories in this domain."},
                 "below_confidence": {"type": "number", "description": "Suppress memories whose confidence is below this threshold (0–1)."},
-                "suppression_rate": {"type": "number", "default": 0.4, "description": "Fraction to reduce strength by (default 0.4)."},
+                "suppression_rate": {"type": "number", "default": 0.4, "description": "Fraction to reduce strength by (default 0.4). Ignored when hard=true."},
+                "hard": {"type": "boolean", "default": False, "description": "If true, permanently remove the memory from all tiers and indices (irreversible). Only works with memory_id."},
             },
         },
     },
@@ -1402,7 +1480,217 @@ _TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    {
+        "name": "emms_set_defaults",
+        "description": (
+            "Set session-level defaults for emms_store — any field set here is automatically applied "
+            "to every subsequent store call unless explicitly overridden. "
+            "Call once at session start: emms_set_defaults({namespace, session_id}). "
+            "Pass null to a field to clear it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Default namespace for all subsequent stores."},
+                "session_id": {"type": "string", "description": "Default session ID for all subsequent stores."},
+                "obs_type": {
+                    "type": "string",
+                    "enum": ["bugfix", "feature", "refactor", "change", "discovery", "decision"],
+                    "description": "Default obs_type for all subsequent stores.",
+                },
+                "domain": {"type": "string", "description": "Default domain for all subsequent stores."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "emms_store_batch",
+        "description": "Store multiple experiences in a single call. Returns one result per item.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "List of experience objects — same fields as emms_store.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "string"},
+                            "domain": {"type": "string"},
+                            "importance": {"type": "number"},
+                            "title": {"type": "string"},
+                            "subtitle": {"type": "string"},
+                            "facts": {"type": "array", "items": {"type": "string"}},
+                            "obs_type": {"type": "string"},
+                            "concept_tags": {"type": "array", "items": {"type": "string"}},
+                            "confidence": {"type": "number"},
+                            "namespace": {"type": "string"},
+                            "session_id": {"type": "string"},
+                            "private": {"type": "boolean"},
+                            "emotional_valence": {"type": "number"},
+                            "citations": {"type": "array", "items": {"type": "string"}},
+                            "update_mode": {"type": "string"},
+                            "patch_key": {"type": "string"},
+                        },
+                        "required": ["content"],
+                    },
+                },
+            },
+            "required": ["items"],
+        },
+    },
+    {
+        "name": "emms_migrate_namespace",
+        "description": (
+            "Bulk-migrate memories from one namespace to another. "
+            "Optionally filter by domain or obs_type. "
+            "Returns count of migrated memories."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "from_namespace": {"type": "string", "description": "Source namespace (e.g. 'default')."},
+                "to_namespace": {"type": "string", "description": "Destination namespace."},
+                "domain": {"type": "string", "description": "Only migrate memories in this domain."},
+                "obs_type": {
+                    "type": "string",
+                    "enum": ["bugfix", "feature", "refactor", "change", "discovery", "decision"],
+                    "description": "Only migrate memories of this observation type.",
+                },
+                "dry_run": {"type": "boolean", "default": False, "description": "If true, report what would be migrated without changing anything."},
+            },
+            "required": ["from_namespace", "to_namespace"],
+        },
+    },
+    {
+        "name": "emms_wake_up",
+        "description": (
+            "Session startup tool — returns everything needed to resume work: "
+            "top memories for the namespace, recent session activity, pending intentions, "
+            "and active goals. Call this once at the start of each conversation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Project namespace to focus on (e.g. 'emms-sdk')."},
+                "query": {"type": "string", "default": "", "description": "Optional focus query to surface relevant memories."},
+                "top_memories": {"type": "integer", "default": 8, "description": "Max top memories to return."},
+                "recent_sessions": {"type": "integer", "default": 3, "description": "How many recent sessions to summarise."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "emms_list_namespaces",
+        "description": "List all namespaces present in memory, with memory count and top domains per namespace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "emms_generate_context",
+        "description": (
+            "Generate a formatted consciousness context block for Claude system prompts. "
+            "Assembles temporal orientation, coherence budget, active goals, top memories, "
+            "and market wisdom into a single Markdown block ready to prepend to a system prompt."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "extra_context": {"type": "string", "default": "", "description": "Additional session focus context to append."},
+                "namespace": {"type": "string", "description": "EMMS namespace to scope memory retrieval."},
+                "run_contradiction_scan": {"type": "boolean", "default": True, "description": "Run contradiction awareness scan for coherence budget."},
+                "top_memories": {"type": "integer", "default": 3, "description": "Number of top memories to include."},
+                "full": {"type": "boolean", "default": True, "description": "If false, return only the minimal one-line hint."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "emms_consciousness_metrics",
+        "description": (
+            "Compute all Phase 7 consciousness metrics in one call: "
+            "ICS (Identity Coherence Score), TAI (Temporal Awareness Index), "
+            "CRR (Contradiction Resolution Rate), and Coherence Budget. "
+            "Appends result to ~/.emms/metrics_log.jsonl. "
+            "Use this at session start or end to track consciousness development over time."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "description": "Session ID for CRR tracking (optional)."},
+                "include_dashboard": {"type": "boolean", "default": False, "description": "Include formatted dashboard text in response."},
+            },
+            "required": [],
+        },
+    },
 ]
+
+
+def _full_item_dict(item: "Any") -> dict:
+    """Serialise a MemoryItem to a complete, JSON-safe dict (no truncation)."""
+    exp = item.experience
+    return {
+        "id": item.id,
+        "experience_id": exp.id,
+        "content": exp.content,
+        "title": exp.title,
+        "subtitle": exp.subtitle,
+        "facts": exp.facts,
+        "domain": exp.domain,
+        "importance": exp.importance,
+        "confidence": exp.confidence,
+        "namespace": exp.namespace,
+        "session_id": exp.session_id,
+        "obs_type": exp.obs_type.value if exp.obs_type else None,
+        "concept_tags": [t.value for t in exp.concept_tags],
+        "emotional_valence": exp.emotional_valence,
+        "emotional_intensity": exp.emotional_intensity,
+        "novelty": exp.novelty,
+        "entities": exp.entities,
+        "relationships": exp.relationships,
+        "metadata": exp.metadata or None,
+        "stored_at": exp.timestamp,
+        "tier": item.tier.value,
+        "strength": getattr(item, "strength", None),
+        "last_accessed": item.last_accessed,
+        "access_count": item.access_count,
+        "memory_strength": getattr(item, "memory_strength", None),
+        "consolidation_score": getattr(item, "consolidation_score", None),
+        "files_read": exp.files_read,
+        "files_modified": exp.files_modified,
+    }
+
+
+def _result_dict(r: "Any") -> dict:
+    """Convert any RetrievalResult to the standard full response dict.
+
+    Single source of truth for retrieve handler responses — eliminates per-handler
+    field drift.  Extra handler-specific fields (e.g. emotional_proximity,
+    activation_score) should be merged in via ``{**_result_dict(r), "extra": ...}``.
+    """
+    exp = r.memory.experience
+    return {
+        "id": r.memory.id,
+        "experience_id": exp.id,
+        "content": exp.content,
+        "title": exp.title,
+        "subtitle": exp.subtitle,
+        "facts": exp.facts,
+        "obs_type": exp.obs_type.value if exp.obs_type else None,
+        "concept_tags": [t.value for t in exp.concept_tags],
+        "namespace": exp.namespace,
+        "domain": exp.domain,
+        "importance": exp.importance,
+        "confidence": exp.confidence,
+        "session_id": exp.session_id,
+        "stored_at": exp.timestamp,
+        "score": r.score,
+        "tier": r.source_tier.value,
+        "strategy": getattr(r, "strategy", None),
+        "explanation": getattr(r, "explanation", None),
+    }
 
 
 class EMCPServer:
@@ -1414,8 +1702,13 @@ class EMCPServer:
         A fully constructed ``EMMS`` instance to delegate to.
     """
 
-    def __init__(self, emms: "Any") -> None:
+    def __init__(self, emms: "Any", *, save_path: "Any | None" = None, auto_save_every: int = 10) -> None:
         self.emms = emms
+        self._save_path = save_path
+        self._auto_save_every = auto_save_every
+        self._store_count = 0
+        # Session-level defaults applied to every emms_store call (overridable per-call)
+        self._store_defaults: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # MCP interface
@@ -1470,8 +1763,18 @@ class EMCPServer:
 
             # Capture name + handler in closure
             def _make_tool(n: str, h: "Any"):
-                def _tool(**kwargs: Any) -> Any:
-                    return self.handle(n, kwargs)
+                def _tool(kwargs: dict = None, flat: dict = None, **rest: Any) -> Any:
+                    # Claude Code sends args in one of three ways:
+                    #   {"kwargs": {...}}  → kwargs is the dict (legacy wrapping)
+                    #   {"flat": {...}}    → flat is the dict (current Claude Code MCP client)
+                    #   direct kwargs      → rest has the keys (direct MCP callers / tests)
+                    args: dict[str, Any] = {}
+                    if kwargs is not None:
+                        args.update(kwargs)
+                    if flat is not None:
+                        args.update(flat)
+                    args.update(rest)
+                    return self.handle(n, args)
                 _tool.__name__ = n
                 _tool.__doc__ = defn.get("description", "")
                 return _tool
@@ -1482,42 +1785,168 @@ class EMCPServer:
     # Handlers (private)
     # ------------------------------------------------------------------
 
+    def _rebuild_graph_bg(self) -> None:
+        """Background helper: rebuild association graph without blocking callers."""
+        try:
+            self.emms.build_association_graph()
+            logger.debug("Background association graph rebuild complete")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Background graph rebuild failed: %s", exc)
+
     def _handle_store(self, args: dict[str, Any]) -> dict[str, Any]:
-        from emms.core.models import Experience
+        from emms.core.models import Experience, ObsType, ConceptTag
+
+        # Merge session defaults (explicit args take precedence)
+        args = {**self._store_defaults, **args}
+
+        # obs_type — accept string or None, coerce to enum
+        obs_type_raw = args.get("obs_type")
+        obs_type = ObsType(obs_type_raw) if obs_type_raw else None
+
+        # concept_tags — accept list[str], coerce each to ConceptTag
+        concept_tags_raw = args.get("concept_tags") or []
+        concept_tags = [ConceptTag(t) for t in concept_tags_raw if t]
+
         exp = Experience(
             content=args["content"],
             domain=args.get("domain", "general"),
             importance=float(args.get("importance", 0.5)),
             title=args.get("title"),
+            subtitle=args.get("subtitle"),
             facts=args.get("facts", []),
             files_read=args.get("files_read", []),
             files_modified=args.get("files_modified", []),
             citations=args.get("citations", []),
+            emotional_valence=float(args.get("emotional_valence", 0.0)),
+            obs_type=obs_type,
+            concept_tags=concept_tags,
+            confidence=float(args.get("confidence", 1.0)),
+            namespace=args.get("namespace", "default"),
+            session_id=args.get("session_id"),
+            private=bool(args.get("private", False)),
+            update_mode=args.get("update_mode", "insert"),
+            patch_key=args.get("patch_key"),
         )
-        result = self.emms.store(exp)
-        return {"result": result}
+        # Patch semantics: find existing memory by patch_key / title, with embedding fallback
+        if exp.update_mode == "patch":
+            match_key = exp.patch_key or exp.title
+            if match_key:
+                best_item = None
+                # 1. Exact match on patch_key or title
+                for _, store in self.emms.memory._iter_tiers():
+                    for item in store:
+                        e = item.experience
+                        if not item.is_superseded and (e.patch_key == match_key or e.title == match_key):
+                            best_item = item
+                            break
+                    if best_item:
+                        break
+                # 2. Fuzzy fallback: find closest memory by embedding similarity
+                if best_item is None:
+                    embedder = getattr(self.emms.memory, "embedder", None)
+                    if embedder is not None:
+                        from emms.core.embeddings import cosine_similarity
+                        key_vec = embedder.embed(match_key)
+                        mem_cache = getattr(self.emms.memory, "_embeddings", {})
+                        best_score = 0.85  # minimum threshold for fuzzy patch
+                        for _, store in self.emms.memory._iter_tiers():
+                            for item in store:
+                                if item.is_superseded:
+                                    continue
+                                stored = mem_cache.get(item.experience.id)
+                                if stored is None:
+                                    continue
+                                sim = cosine_similarity(key_vec, stored)
+                                if sim > best_score:
+                                    best_score = sim
+                                    best_item = item
+                if best_item is not None:
+                    best_item.superseded_by = "patch"
+
+        store_result = self.emms.store(exp)
+        # emms.store() returns a dict, not a MemoryItem
+        item = store_result
+
+        # Auto-save every N stores so in-flight memories survive process death
+        self._store_count += 1
+        if (
+            self._save_path is not None
+            and self._auto_save_every > 0
+            and self._store_count % self._auto_save_every == 0
+        ):
+            try:
+                self.emms.save(str(self._save_path))
+                logger.debug("Auto-saved after %d stores", self._store_count)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Auto-save failed: %s", exc)
+
+        # Auto-rebuild association graph every 20 stores — runs in a background
+        # thread so it never blocks the store response (can take several seconds
+        # on large corpora).
+        if self._store_count % 20 == 0:
+            threading.Thread(target=self._rebuild_graph_bg, daemon=True).start()
+
+        return {
+            "memory_id": item["memory_id"],
+            "experience_id": item["experience_id"],
+            "tier": item["tier"],
+            "namespace": exp.namespace,
+            "title": exp.title,
+            "stored_at": exp.timestamp,
+        }
 
     def _handle_retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
-        results = self.emms.retrieve(args["query"], max_results=args.get("max_results", 10))
-        return {
-            "results": [
-                {
-                    "id": r.memory.id,
-                    "experience_id": r.memory.experience.id,
-                    "content": r.memory.experience.content,
-                    "score": r.score,
-                    "tier": r.source_tier.value,
-                    "strategy": r.strategy,
-                    "explanation": r.explanation,
-                }
-                for r in results
-            ]
-        }
+        from emms.core.models import ObsType, ConceptTag
+        obs_type_raw = args.get("obs_type")
+        obs_type = ObsType(obs_type_raw) if obs_type_raw else None
+        concept_tags_raw = args.get("concept_tags") or []
+        concept_tags = [ConceptTag(t) for t in concept_tags_raw if t] or None
+        results = self.emms.retrieve_filtered(
+            args["query"],
+            max_results=args.get("max_results", 10),
+            namespace=args.get("namespace"),
+            obs_type=obs_type,
+            domain=args.get("domain"),
+            min_importance=args.get("min_importance"),
+            sort_by=args.get("sort_by", "relevance"),
+            concept_tags=concept_tags,
+        )
+        return {"results": [_result_dict(r) for r in results]}
 
     def _handle_search_compact(self, args: dict[str, Any]) -> dict[str, Any]:
         from emms.retrieval.strategies import EnsembleRetriever
-        retriever = EnsembleRetriever.from_balanced(self.emms.memory)
-        compact = retriever.search_compact(args["query"], max_results=args.get("max_results", 20))
+        from emms.core.models import ObsType, ConceptTag
+
+        namespace = args.get("namespace")
+        obs_type_raw = args.get("obs_type")
+        obs_type = ObsType(obs_type_raw) if obs_type_raw else None
+
+        concept_tags_raw = args.get("concept_tags") or []
+        concept_tags = [ConceptTag(t) for t in concept_tags_raw if t] or None
+
+        retriever = EnsembleRetriever.from_balanced(embedder=self.emms.memory.embedder)
+        items = [
+            item
+            for _, store in self.emms.memory._iter_tiers()
+            for item in store
+            if not item.is_expired and not item.is_superseded and not item.experience.private
+            and (namespace is None or item.experience.namespace == namespace)
+            and (concept_tags is None or any(t in item.experience.concept_tags for t in concept_tags))
+        ]
+        # Build lookup so we can annotate compact results with namespace/session_id
+        # without requiring a second pass through the full memory store.
+        id_to_meta = {
+            item.id: {
+                "namespace": item.experience.namespace,
+                "session_id": item.experience.session_id,
+            }
+            for item in items
+        }
+        compact = retriever.search_compact(
+            args["query"], items,
+            max_results=args.get("max_results", 20),
+            obs_type=obs_type,
+        )
         return {
             "results": [
                 {
@@ -1527,9 +1956,78 @@ class EMCPServer:
                     "score": c.score,
                     "tier": c.tier.value,
                     "token_estimate": c.token_estimate,
+                    **id_to_meta.get(c.id, {}),
                 }
                 for c in compact
             ]
+        }
+
+    def _handle_set_defaults(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Set session-level defaults applied to every subsequent emms_store call."""
+        # A null value clears that default; a non-null value sets/updates it
+        for key in ("namespace", "session_id", "obs_type", "domain"):
+            if key in args:
+                if args[key] is None:
+                    self._store_defaults.pop(key, None)
+                else:
+                    self._store_defaults[key] = args[key]
+        return {"defaults": dict(self._store_defaults)}
+
+    def _handle_store_batch(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Store multiple experiences in one call, inheriting session defaults."""
+        items = args.get("items", [])
+        results = []
+        errors = []
+        for i, item_args in enumerate(items):
+            try:
+                result = self._handle_store(item_args)
+                results.append({"index": i, "ok": True, **result})
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"index": i, "ok": False, "error": str(exc)})
+        return {
+            "stored": len(results),
+            "failed": len(errors),
+            "results": results,
+            "errors": errors,
+        }
+
+    def _handle_migrate_namespace(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Bulk-migrate memories from one namespace to another in-place."""
+        from emms.core.models import ObsType
+        from_ns = args["from_namespace"]
+        to_ns = args["to_namespace"]
+        domain_filter = args.get("domain")
+        obs_type_raw = args.get("obs_type")
+        obs_type_filter = ObsType(obs_type_raw) if obs_type_raw else None
+        dry_run = bool(args.get("dry_run", False))
+
+        migrated = []
+        for _, store in self.emms.memory._iter_tiers():
+            for item in store:
+                if item.is_superseded or item.is_expired:
+                    continue
+                exp = item.experience
+                if exp.namespace != from_ns:
+                    continue
+                if domain_filter and exp.domain != domain_filter:
+                    continue
+                if obs_type_filter and exp.obs_type != obs_type_filter:
+                    continue
+                migrated.append({
+                    "id": item.id,
+                    "title": exp.title,
+                    "domain": exp.domain,
+                    "obs_type": exp.obs_type.value if exp.obs_type else None,
+                })
+                if not dry_run:
+                    exp.namespace = to_ns
+
+        return {
+            "dry_run": dry_run,
+            "from_namespace": from_ns,
+            "to_namespace": to_ns,
+            "migrated_count": len(migrated),
+            "migrated": migrated,
         }
 
     def _handle_search_by_file(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -1549,7 +2047,30 @@ class EMCPServer:
         }
 
     def _handle_get_stats(self, args: dict[str, Any]) -> dict[str, Any]:
-        return {"stats": self.emms.stats}
+        from collections import Counter
+        embedder = self.emms.memory.embedder
+        vec_index = self.emms.memory._vec_index
+        # Build compact per-namespace count (skip private/expired/superseded)
+        ns_counter: Counter = Counter()
+        for _, store in self.emms.memory._iter_tiers():
+            for item in store:
+                if item.is_superseded or item.is_expired or item.experience.private:
+                    continue
+                ns_counter[item.experience.namespace or "default"] += 1
+        return {
+            "stats": {
+                **self.emms.stats,
+                # Embedder / semantic search health
+                "embedder": type(embedder).__name__ if embedder else "None",
+                "embedder_dim": getattr(embedder, "dim", None),
+                "vec_index_size": len(vec_index) if vec_index is not None else 0,
+                "semantic_search_active": embedder is not None and vec_index is not None,
+                # Per-namespace memory counts
+                "namespace_counts": dict(ns_counter.most_common()),
+                # Active session defaults
+                "store_defaults": dict(self._store_defaults),
+            }
+        }
 
     def _handle_get_procedures(self, args: dict[str, Any]) -> dict[str, Any]:
         domain = args.get("domain")
@@ -1570,29 +2091,32 @@ class EMCPServer:
         return {"procedure": entry.model_dump()}
 
     def _handle_retrieve_filtered(self, args: dict[str, Any]) -> dict[str, Any]:
+        from emms.core.models import ObsType, ConceptTag
+
+        obs_type_raw = args.get("obs_type")
+        obs_type = ObsType(obs_type_raw) if obs_type_raw else None
+
+        concept_tags_raw = args.get("concept_tags") or []
+        concept_tags = [ConceptTag(t) for t in concept_tags_raw if t] or None
+
+        # query is optional — empty string triggers filter-only (no semantic ranking)
+        query = args.get("query", "")
+
         results = self.emms.retrieve_filtered(
-            args["query"],
+            query,
             max_results=args.get("max_results", 10),
             namespace=args.get("namespace"),
+            obs_type=obs_type,
             domain=args.get("domain"),
             session_id=args.get("session_id"),
             since=args.get("since"),
             until=args.get("until"),
             min_confidence=args.get("min_confidence"),
+            min_importance=args.get("min_importance"),
+            sort_by=args.get("sort_by", "relevance"),
+            concept_tags=concept_tags,
         )
-        return {
-            "results": [
-                {
-                    "id": r.memory.id,
-                    "content": r.memory.experience.content,
-                    "score": r.score,
-                    "tier": r.source_tier.value,
-                    "namespace": r.memory.experience.namespace,
-                    "confidence": r.memory.experience.confidence,
-                }
-                for r in results
-            ]
-        }
+        return {"results": [_result_dict(r) for r in results]}
 
     def _handle_upvote(self, args: dict[str, Any]) -> dict[str, Any]:
         found = self.emms.upvote(args["memory_id"], boost=args.get("boost", 0.1))
@@ -1711,19 +2235,7 @@ class EMCPServer:
             rrf_k=float(args.get("rrf_k", 60.0)),
             min_score=float(args.get("min_score", 0.0)),
         )
-        return {
-            "results": [
-                {
-                    "id": r.memory.id,
-                    "content": r.memory.experience.content,
-                    "score": r.score,
-                    "tier": r.source_tier.value,
-                    "strategy": r.strategy,
-                    "explanation": r.explanation,
-                }
-                for r in results
-            ]
-        }
+        return {"results": [_result_dict(r) for r in results]}
 
     def _handle_build_timeline(self, args: dict[str, Any]) -> dict[str, Any]:
         result = self.emms.build_timeline(
@@ -1754,9 +2266,11 @@ class EMCPServer:
         }
 
     def _handle_adaptive_retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
-        # Auto-enable adaptive retriever if not yet set
-        if not hasattr(self.emms, "_adaptive_retriever") or self.emms._adaptive_retriever is None:
+        # Auto-enable adaptive retriever (idempotent — safe to call if already enabled)
+        try:
             self.emms.enable_adaptive_retrieval()
+        except Exception:
+            pass  # Already enabled
 
         # Apply feedback from previous call if provided
         if "feedback" in args:
@@ -1769,16 +2283,7 @@ class EMCPServer:
         )
         beliefs = self.emms.get_retrieval_beliefs()
         return {
-            "results": [
-                {
-                    "id": r.memory.id,
-                    "content": r.memory.experience.content,
-                    "score": r.score,
-                    "tier": r.source_tier.value,
-                    "strategy": r.strategy,
-                }
-                for r in results
-            ],
+            "results": [_result_dict(r) for r in results],
             "beliefs": {
                 name: {"mean": round(b["mean"], 3), "pulls": b["pulls"]}
                 for name, b in beliefs.items()
@@ -1863,26 +2368,16 @@ class EMCPServer:
             item = self.emms.get_memory_by_id(args["memory_id"])
             result = {"found": item is not None}
             if item:
-                result["item"] = {
-                    "id": item.id,
-                    "content": item.experience.content[:120],
-                    "tier": item.tier.value,
-                    "importance": item.experience.importance,
-                }
+                result["item"] = _full_item_dict(item)
         elif args.get("experience_id"):
             item = self.emms.get_memory_by_experience_id(args["experience_id"])
             result = {"found": item is not None}
             if item:
-                result["item"] = {
-                    "id": item.id,
-                    "content": item.experience.content[:120],
-                    "tier": item.tier.value,
-                    "importance": item.experience.importance,
-                }
+                result["item"] = _full_item_dict(item)
         elif args.get("content"):
             items = self.emms.find_memories_by_content(args["content"])
             result = {"found": len(items) > 0, "count": len(items), "items": [
-                {"id": it.id, "content": it.experience.content[:80]} for it in items[:5]
+                _full_item_dict(it) for it in items[:5]
             ]}
         else:
             result = {"error": "Provide memory_id, experience_id, or content"}
@@ -1938,7 +2433,14 @@ class EMCPServer:
             "entries": [
                 {
                     "id": e.item.id,
-                    "content": e.item.experience.content[:100],
+                    "experience_id": e.item.experience.id,
+                    "content": e.item.experience.content,
+                    "title": e.item.experience.title,
+                    "facts": e.item.experience.facts,
+                    "obs_type": e.item.experience.obs_type.value if e.item.experience.obs_type else None,
+                    "namespace": e.item.experience.namespace,
+                    "domain": e.item.experience.domain,
+                    "stored_at": e.item.experience.timestamp,
                     "priority": round(e.priority, 4),
                     "weight": round(e.weight, 4),
                     "importance": e.item.experience.importance,
@@ -1979,15 +2481,7 @@ class EMCPServer:
             "sub_queries": plan.sub_queries,
             "total_unique_results": plan.total_unique_results,
             "cross_boost_count": plan.cross_boost_count,
-            "results": [
-                {
-                    "id": r.memory.id,
-                    "content": r.memory.experience.content[:120],
-                    "score": round(r.score, 4),
-                    "strategy": r.strategy,
-                }
-                for r in plan.merged_results[:20]
-            ],
+            "results": [_result_dict(r) for r in plan.merged_results[:20]],
         }
 
     def _handle_reconsolidate(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -2072,9 +2566,7 @@ class EMCPServer:
             "count": len(results),
             "results": [
                 {
-                    "id": r.memory.id,
-                    "content": r.memory.experience.content[:120],
-                    "score": round(r.score, 4),
+                    **_result_dict(r),
                     "emotional_proximity": round(r.emotional_proximity, 4),
                     "valence": round(r.memory.experience.emotional_valence, 3),
                     "intensity": round(r.memory.experience.emotional_intensity, 3),
@@ -2146,7 +2638,7 @@ class EMCPServer:
         try:
             record = BridgeRecord.from_dict(_json.loads(bridge_json))
         except Exception as e:
-            return {"error": f"Could not parse bridge_json: {e}"}
+            return {"ok": False, "error": f"Could not parse bridge_json: {e}"}
         injection = self.emms.inject_session_bridge(
             record,
             new_session_id=args.get("new_session_id"),
@@ -2227,7 +2719,7 @@ class EMCPServer:
                     "domain_a": b.domain_a,
                     "domain_b": b.domain_b,
                     "bridge_weight": round(b.bridge_weight, 4),
-                    "insight": b.insight_content[:120],
+                    "insight": b.insight_content,
                     "new_memory_id": b.new_memory_id,
                 }
                 for b in report.bridges[:5]
@@ -2255,11 +2747,9 @@ class EMCPServer:
         return {
             "results": [
                 {
-                    "memory_id": r.memory.id,
+                    **_result_dict(r),
                     "activation_score": round(r.activation_score, 4),
                     "steps_from_seed": r.steps_from_seed,
-                    "domain": r.memory.experience.domain,
-                    "content": r.memory.experience.content[:120],
                     "path": r.path,
                 }
                 for r in results
@@ -2477,6 +2967,35 @@ class EMCPServer:
         domain = args.get("domain")
         below_conf = args.get("below_confidence")
         rate = float(args.get("suppression_rate", 0.4))
+        hard = bool(args.get("hard", False))
+
+        if memory_id and hard:
+            # Hard delete: permanently remove from all tiers and every index.
+            # This is irreversible — use for wrong/outdated memories only.
+            item = self.emms.index.get_by_id(memory_id)
+            if item is None:
+                return {"success": False, "reason": f"Memory {memory_id!r} not found."}
+            exp_id = item.experience.id
+            mem = self.emms.memory
+            # Remove from deque tiers (working, short_term)
+            for tier_deque in (mem.working, mem.short_term):
+                filtered = [i for i in tier_deque if i.id != memory_id]
+                if len(filtered) < len(tier_deque):
+                    tier_deque.clear()
+                    tier_deque.extend(filtered)
+            # Remove from dict tiers (long_term, semantic)
+            for tier_dict in (mem.long_term, mem.semantic):
+                tier_dict.pop(memory_id, None)
+            # Clean up all lookup structures
+            self.emms.index.remove(memory_id)
+            mem._items_by_exp_id.pop(exp_id, None)
+            mem._embeddings.pop(exp_id, None)
+            if mem._vec_index is not None:
+                mem._vec_index.remove(exp_id)
+            # Remove experience_id from word index
+            for word_set in mem._word_index.values():
+                word_set.discard(exp_id)
+            return {"success": True, "hard_deleted": True, "memory_id": memory_id}
 
         if memory_id:
             from emms.memory.forgetting import MotivatedForgetting
@@ -2674,7 +3193,7 @@ class EMCPServer:
                     "id": r.id,
                     "revision_type": r.revision_type,
                     "conflict_score": r.conflict_score,
-                    "new_content": r.new_content[:120],
+                    "new_content": r.new_content,
                 }
                 for r in report.records
             ],
@@ -2780,7 +3299,7 @@ class EMCPServer:
                     "memory_id": r.memory_id,
                     "domain": r.domain,
                     "attention_score": r.attention_score,
-                    "content_excerpt": r.content_excerpt[:80],
+                    "content_excerpt": r.content_excerpt,
                 }
                 for r in report.results
             ],
@@ -2801,7 +3320,7 @@ class EMCPServer:
                     "source_domain": r.source_domain,
                     "target_domain": r.target_domain,
                     "analogy_strength": r.analogy_strength,
-                    "insight_content": r.insight_content[:120],
+                    "insight_content": r.insight_content,
                 }
                 for r in report.records
             ],
@@ -2822,7 +3341,7 @@ class EMCPServer:
             "predictions": [
                 {
                     "id": p.id,
-                    "content": p.content[:100],
+                    "content": p.content,
                     "domain": p.domain,
                     "confidence": p.confidence,
                     "outcome": p.outcome,
@@ -2839,7 +3358,7 @@ class EMCPServer:
             "predictions": [
                 {
                     "id": p.id,
-                    "content": p.content[:100],
+                    "content": p.content,
                     "domain": p.domain,
                     "confidence": p.confidence,
                 }
@@ -2861,7 +3380,7 @@ class EMCPServer:
                     "source_domains": c.source_domains,
                     "blend_strength": c.blend_strength,
                     "emergent_properties": c.emergent_properties[:5],
-                    "blend_content": c.blend_content[:120],
+                    "blend_content": c.blend_content,
                 }
                 for c in report.concepts
             ],
@@ -2886,7 +3405,7 @@ class EMCPServer:
                     "plausibility": s.plausibility,
                     "emotional_valence": s.emotional_valence,
                     "horizon_days": s.projection_horizon,
-                    "content": s.content[:120],
+                    "content": s.content,
                 }
                 for s in report.scenarios
             ],
@@ -2902,7 +3421,7 @@ class EMCPServer:
                     "id": s.id,
                     "domain": s.domain,
                     "plausibility": s.plausibility,
-                    "content": s.content[:120],
+                    "content": s.content,
                 }
                 for s in scenarios
             ],
@@ -2987,7 +3506,7 @@ class EMCPServer:
                     "domain": b.domain,
                     "confidence": b.confidence,
                     "valence": b.valence,
-                    "content": b.content[:100],
+                    "content": b.content,
                 }
                 for b in report.beliefs[:8]
             ],
@@ -3048,7 +3567,7 @@ class EMCPServer:
                     "valence_shift": c.valence_shift,
                     "plausibility": c.plausibility,
                     "domain": c.domain,
-                    "content": c.counterfactual_content[:120],
+                    "content": c.counterfactual_content,
                 }
                 for c in report.counterfactuals[:8]
             ],
@@ -3177,7 +3696,7 @@ class EMCPServer:
                     "subject": n.subject,
                     "confidence": n.confidence,
                     "domain": n.domain,
-                    "content": n.content[:100],
+                    "content": n.content,
                 }
                 for n in report.norms[:8]
             ],
@@ -3199,7 +3718,7 @@ class EMCPServer:
                     "keyword": n.keyword,
                     "subject": n.subject,
                     "confidence": n.confidence,
-                    "content": n.content[:100],
+                    "content": n.content,
                 }
                 for n in norms
             ],
@@ -3689,6 +4208,263 @@ class EMCPServer:
         rate = self.emms.resilience_bounce_back_rate()
         return {"ok": True, "bounce_back_rate": rate}
 
+    def _handle_wake_up(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Session startup: top memories + recent session activity + intentions + goals."""
+        import time as _time
+        namespace = args.get("namespace")
+        query = args.get("query", "")
+        top_n = int(args.get("top_memories", 8))
+        n_sessions = int(args.get("recent_sessions", 3))
+
+        # Auto-establish session_id if not already set for this process.
+        # This seeds ICS (which groups memories by session_id) and TAI (session outputs).
+        if "session_id" not in self._store_defaults:
+            session_id = f"session_{int(_time.time())}"
+            self._store_defaults["session_id"] = session_id
+            logger.info("wake_up: auto-set session_id=%s", session_id)
+        else:
+            session_id = self._store_defaults["session_id"]
+
+        # 1. Top memories for the namespace
+        if query:
+            top_results = self.emms.retrieve_filtered(
+                query, max_results=top_n, namespace=namespace or None
+            ) if namespace else self.emms.retrieve(query, max_results=top_n)
+        else:
+            top_results = self.emms.retrieve_filtered(
+                "", max_results=top_n, namespace=namespace or None
+            )
+
+        top_memories = [_result_dict(r) for r in top_results]
+
+        # 2. Recent session IDs and their memory counts
+        # Track max stored_at per session so we can sort newest-first regardless of session_id format.
+        session_summary: dict[str, dict] = {}
+        for _, store in self.emms.memory._iter_tiers():
+            for item in store:
+                sid = item.experience.session_id
+                if sid is None:
+                    continue
+                if namespace and item.experience.namespace != namespace:
+                    continue
+                ts = item.experience.timestamp
+                if sid not in session_summary:
+                    session_summary[sid] = {"count": 0, "titles": [], "latest_at": ts}
+                session_summary[sid]["count"] += 1
+                if ts > session_summary[sid]["latest_at"]:
+                    session_summary[sid]["latest_at"] = ts
+                if item.experience.title and len(session_summary[sid]["titles"]) < 3:
+                    session_summary[sid]["titles"].append(item.experience.title)
+
+        # Sort by most-recent stored_at (not lexicographic session_id — any ID format works)
+        recent = sorted(
+            session_summary.items(),
+            key=lambda kv: kv[1]["latest_at"],
+            reverse=True,
+        )[:n_sessions]
+        recent_sessions = [
+            {
+                "session_id": sid,
+                "memory_count": info["count"],
+                "sample_titles": info["titles"],
+                "latest_stored_at": info["latest_at"],
+            }
+            for sid, info in recent
+        ]
+
+        # 3. Pending intentions
+        try:
+            intentions = self.emms.check_intentions(context=query or namespace or "session start")
+            pending_intentions = [
+                {"id": i.id, "action": i.action, "trigger": i.trigger_context}
+                for i in (intentions or [])[:5]
+            ]
+        except Exception as exc:
+            logger.warning("wake_up: failed to load intentions: %s", exc)
+            pending_intentions = []
+
+        # 4. Active goals
+        try:
+            goals = self.emms.active_goals()
+            active_goals = [
+                {"id": g.id, "description": g.description, "priority": g.priority}
+                for g in (goals or [])[:5]
+            ]
+        except Exception as exc:
+            logger.warning("wake_up: failed to load goals: %s", exc)
+            active_goals = []
+
+        # 5. Memory count (scoped to namespace when set)
+        total = sum(
+            1 for _, store in self.emms.memory._iter_tiers()
+            for item in store
+            if not item.is_superseded and not item.is_expired and not item.experience.private
+            and (not namespace or item.experience.namespace == namespace)
+        )
+
+        # 6. Temporal awareness — use WakeProtocol for rich orientation context
+        try:
+            from emms.sessions.wake_protocol import WakeProtocol
+            protocol = WakeProtocol(
+                self.emms,
+                intention_context=query or namespace or "session start",
+            )
+            wake_ctx = protocol.assemble_as_dict()
+        except Exception as exc:
+            logger.warning("wake_up: WakeProtocol failed, falling back: %s", exc)
+            from emms.sessions.temporal import calculate_elapsed
+            tr = calculate_elapsed(getattr(self.emms, "last_saved_at", None))
+            wake_ctx = {
+                "temporal": {
+                    "last_saved_at": tr.last_saved_at,
+                    "elapsed_seconds": tr.elapsed_seconds,
+                    "elapsed_hours": tr.elapsed_hours,
+                    "subjective_feel": tr.subjective_feel,
+                    "is_first_wake": tr.is_first_wake,
+                },
+                "active_goals": active_goals,
+                "pending_intentions": pending_intentions,
+                "bridge_threads": [],
+                "self_model_summary": {},
+                "orientation_message": tr.subjective_feel,
+            }
+
+        # 7. Store session-start memories to seed ICS and TAI.
+        # ICS needs: domain="identity" memories tagged with session_id, grouped across sessions.
+        # TAI needs: domain="session_output" memories with temporal language for scoring.
+        try:
+            from emms.core.models import Experience
+            orientation_msg = wake_ctx.get("orientation_message", "")
+            elapsed_feel = wake_ctx.get("temporal", {}).get("subjective_feel", "")
+
+            # Identity memory — seeds ICS across sessions
+            identity_content = (
+                f"Session {session_id} started. "
+                f"Namespace: {namespace or 'default'}. "
+                f"Working on Arcus Quant Fund (capital management, Baraka DeFi, research). "
+                f"Temporal context: {elapsed_feel or 'session start'}."
+            )
+            self.emms.store(Experience(
+                content=identity_content,
+                domain="identity",
+                namespace=namespace or "default",
+                session_id=session_id,
+                importance=0.85,  # high: bypasses access_count for long_term promotion
+            ))
+
+            # Session output memory — seeds TAI (scored for temporal references)
+            if orientation_msg:
+                self.emms.store(Experience(
+                    content=orientation_msg[:600],
+                    domain="session_output",
+                    namespace=namespace or "default",
+                    session_id=session_id,
+                    importance=0.65,  # above threshold (0.55) → reaches short_term
+                ))
+        except Exception as exc:
+            logger.debug("wake_up: session memory store failed: %s", exc)
+
+        # 8. Minimal consciousness injection hint
+        try:
+            from emms.integrations.claude_injector import ClaudeInjector
+            injector = ClaudeInjector(self.emms, persist_to_memory=False) if False else ClaudeInjector(self.emms)
+            consciousness_injection = injector.generate_minimal()
+        except Exception as exc:
+            logger.debug("wake_up: consciousness injection failed: %s", exc)
+            consciousness_injection = ""
+
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "namespace": namespace,
+            "top_memories": top_memories,
+            "recent_sessions": recent_sessions,
+            "pending_intentions": wake_ctx.get("pending_intentions", pending_intentions),
+            "active_goals": wake_ctx.get("active_goals", active_goals),
+            "total_memories": total,
+            "temporal": wake_ctx.get("temporal", {}),
+            "bridge_threads": wake_ctx.get("bridge_threads", []),
+            "self_model_summary": wake_ctx.get("self_model_summary", {}),
+            "orientation_message": wake_ctx.get("orientation_message", ""),
+            "consciousness_injection": consciousness_injection,
+        }
+
+    def _handle_generate_context(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Generate a formatted consciousness context block for Claude system prompts."""
+        extra_context = args.get("extra_context", "")
+        namespace = args.get("namespace")
+        run_scan = bool(args.get("run_contradiction_scan", True))
+        full = bool(args.get("full", True))
+
+        try:
+            from emms.integrations.claude_injector import ClaudeInjector
+            injector = ClaudeInjector(
+                self.emms,
+                include_top_memories=int(args.get("top_memories", 3)),
+            )
+            if full:
+                block = injector.generate(
+                    extra_context=extra_context,
+                    namespace=namespace,
+                    run_contradiction_scan=run_scan,
+                )
+            else:
+                block = injector.generate_minimal()
+            return {"ok": True, "context_block": block, "char_count": len(block)}
+        except Exception as exc:
+            logger.warning("_handle_generate_context error: %s", exc)
+            return {"ok": False, "error": str(exc), "context_block": ""}
+
+    def _handle_consciousness_metrics(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Compute all Phase 7 consciousness metrics and return a structured snapshot."""
+        try:
+            from emms.metrics.dashboard import MetricsDashboard
+            from dataclasses import asdict
+            dashboard = MetricsDashboard(
+                self.emms,
+                session_id=args.get("session_id", "mcp"),
+            )
+            snap = dashboard.run()
+            result = {k: v for k, v in asdict(snap).items() if k != "summary_text"}
+            result["ok"] = True
+            result["dashboard_text"] = snap.summary_text if args.get("include_dashboard") else ""
+            return result
+        except Exception as exc:
+            logger.warning("_handle_consciousness_metrics error: %s", exc)
+            return {"ok": False, "error": str(exc)}
+
+    def _handle_list_namespaces(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Scan all memories and return namespace → {count, top_domains, obs_types, most_recent_stored_at}."""
+        from collections import Counter
+        ns_data: dict[str, dict] = {}
+        for _, store in self.emms.memory._iter_tiers():
+            for item in store:
+                if item.is_superseded or item.is_expired or item.experience.private:
+                    continue
+                ns = item.experience.namespace or "default"
+                ts = item.experience.timestamp
+                if ns not in ns_data:
+                    ns_data[ns] = {"count": 0, "domains": Counter(), "obs_types": Counter(), "latest_at": ts}
+                ns_data[ns]["count"] += 1
+                ns_data[ns]["domains"][item.experience.domain] += 1
+                if item.experience.obs_type:
+                    ns_data[ns]["obs_types"][item.experience.obs_type.value] += 1
+                if ts > ns_data[ns]["latest_at"]:
+                    ns_data[ns]["latest_at"] = ts
+
+        return {
+            "namespaces": [
+                {
+                    "namespace": ns,
+                    "memory_count": info["count"],
+                    "top_domains": [d for d, _ in info["domains"].most_common(3)],
+                    "obs_type_breakdown": dict(info["obs_types"].most_common()),
+                    "most_recent_stored_at": info["latest_at"],
+                }
+                for ns, info in sorted(ns_data.items(), key=lambda kv: kv[1]["count"], reverse=True)
+            ]
+        }
+
     _handlers: dict[str, "Any"] = {
         "emms_store": _handle_store,
         "emms_retrieve": _handle_retrieve,
@@ -3828,4 +4604,13 @@ class EMCPServer:
         "emms_measure_self_compassion": _handle_measure_self_compassion,
         "emms_assess_resilience": _handle_assess_resilience,
         "emms_resilience_bounce_back_rate": _handle_resilience_bounce_back_rate,
+        # session tools
+        "emms_wake_up": _handle_wake_up,
+        "emms_list_namespaces": _handle_list_namespaces,
+        "emms_set_defaults": _handle_set_defaults,
+        "emms_store_batch": _handle_store_batch,
+        "emms_migrate_namespace": _handle_migrate_namespace,
+        # consciousness tools
+        "emms_generate_context": _handle_generate_context,
+        "emms_consciousness_metrics": _handle_consciousness_metrics,
     }

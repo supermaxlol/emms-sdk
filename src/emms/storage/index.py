@@ -68,7 +68,12 @@ class CompactionIndex:
         if item is None:
             return False
         exp_id = item.experience.id if item.experience else None
-        self._by_experience_id.pop(exp_id or "", None)
+        # Fix: never use "" as a fallback key — multiple null-experience items
+        # all mapped to "" meant removing one silently deleted the shared key,
+        # making subsequent removals fail and leaving _by_id / _by_experience_id
+        # out of sync (index corruption).
+        if exp_id:
+            self._by_experience_id.pop(exp_id, None)
         ch = _content_hash(item.experience.content if item.experience else "")
         bucket = self._by_content_hash.get(ch, [])
         self._by_content_hash[ch] = [x for x in bucket if x.id != memory_id]

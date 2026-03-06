@@ -76,7 +76,7 @@ class MemoryConfig(BaseModel):
     long_term_capacity: int = 10_000
     context_window: int = 32_000
     eviction_ratio: float = 0.3
-    consolidation_threshold: float = 0.7
+    consolidation_threshold: float = 0.55
     decay_half_life_seconds: float = 86_400.0  # 1 day
     relevance_threshold: float = 0.3
     modalities: list[Modality] = Field(

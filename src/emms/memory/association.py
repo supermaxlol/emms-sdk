@@ -168,35 +168,43 @@ class AssociationGraph:
                 best_weight = 0.0
                 best_type = "semantic"
 
-                # 1. Semantic similarity (cosine of stored embeddings)
+                # 1. Semantic similarity — HIGHEST PRIORITY.
+                # When real embeddings exist and similarity meets threshold,
+                # semantic wins unconditionally over affective/temporal/domain.
+                # Previously, default emotional_valence=0.0 gave affective
+                # weight=1.0 on every pair, permanently blocking semantic edges.
                 emb_a = self.memory._embeddings.get(a.experience.id)
                 emb_b = self.memory._embeddings.get(b.experience.id)
+                semantic_set = False
                 if emb_a is not None and emb_b is not None:
                     sim = self._cosine_sim(emb_a, emb_b)
-                    if sim >= self.semantic_threshold and sim > best_weight:
+                    if sim >= self.semantic_threshold:
                         best_weight, best_type = sim, "semantic"
+                        semantic_set = True
 
-                # 2. Temporal proximity
-                gap = abs(a.stored_at - b.stored_at)
-                if gap <= self.temporal_window:
-                    w = 1.0 - gap / max(self.temporal_window, 1e-9)
-                    if w > best_weight:
-                        best_weight, best_type = w, "temporal"
+                # 2-4: Only evaluate fallback signals when no semantic edge was set
+                if not semantic_set:
+                    # 2. Temporal proximity
+                    gap = abs(a.stored_at - b.stored_at)
+                    if gap <= self.temporal_window:
+                        w = 1.0 - gap / max(self.temporal_window, 1e-9)
+                        if w > best_weight:
+                            best_weight, best_type = w, "temporal"
 
-                # 3. Affective similarity (emotional valence)
-                va = getattr(a.experience, "emotional_valence", 0.0) or 0.0
-                vb = getattr(b.experience, "emotional_valence", 0.0) or 0.0
-                if abs(va - vb) <= self.affective_tolerance:
-                    w = 1.0 - abs(va - vb) / max(self.affective_tolerance, 1e-9)
-                    if w > best_weight:
-                        best_weight, best_type = w, "affective"
+                    # 3. Affective similarity (emotional valence)
+                    va = getattr(a.experience, "emotional_valence", 0.0) or 0.0
+                    vb = getattr(b.experience, "emotional_valence", 0.0) or 0.0
+                    if abs(va - vb) <= self.affective_tolerance:
+                        w = 1.0 - abs(va - vb) / max(self.affective_tolerance, 1e-9)
+                        if w > best_weight:
+                            best_weight, best_type = w, "affective"
 
-                # 4. Domain match
-                dom_a = getattr(a.experience, "domain", None)
-                dom_b = getattr(b.experience, "domain", None)
-                if dom_a and dom_b and dom_a == dom_b:
-                    if 0.6 > best_weight:
-                        best_weight, best_type = 0.6, "domain"
+                    # 4. Domain match
+                    dom_a = getattr(a.experience, "domain", None)
+                    dom_b = getattr(b.experience, "domain", None)
+                    if dom_a and dom_b and dom_a == dom_b:
+                        if 0.6 > best_weight:
+                            best_weight, best_type = 0.6, "domain"
 
                 if best_weight > 0.0:
                     self.associate(a.id, b.id, edge_type=best_type, weight=best_weight)

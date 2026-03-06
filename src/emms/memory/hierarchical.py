@@ -97,18 +97,25 @@ class VectorIndex:
         return results
 
     def __len__(self) -> int:
-        return len(self._id_to_idx)
+        # Count id_to_idx entries plus buffer items not yet flushed into it.
+        buffer_new = sum(1 for id_, _ in self._buffer if id_ not in self._id_to_idx)
+        return len(self._id_to_idx) + buffer_new
 
     def _rebuild_if_dirty(self) -> None:
         """Rebuild the matrix from IDs + buffer."""
         if not self._dirty:
             return
 
-        # Flush buffer
+        # Collect buffer vectors BEFORE clearing so they aren't lost.
+        # Previously the buffer was flushed into _id_to_idx/_ids but the
+        # actual vectors were discarded, causing every newly-added entry to
+        # become a zero vector in the rebuilt matrix.
+        buffer_vecs: dict[str, np.ndarray] = {}
         for id_, vec in self._buffer:
             if id_ not in self._id_to_idx:
                 self._id_to_idx[id_] = len(self._ids)
                 self._ids.append(id_)
+            buffer_vecs[id_] = vec  # preserve the real vector
 
         self._buffer.clear()
 
@@ -118,7 +125,10 @@ class VectorIndex:
         for i, id_ in enumerate(self._ids):
             if id_ and id_ in self._id_to_idx:
                 live_ids.append(id_)
-                if self._matrix is not None and i < len(self._matrix):
+                if id_ in buffer_vecs:
+                    # Freshly added (or updated) vector — use it directly.
+                    live_vecs.append(buffer_vecs[id_])
+                elif self._matrix is not None and i < len(self._matrix):
                     live_vecs.append(self._matrix[i])
                 else:
                     live_vecs.append(np.zeros(self.dim))
@@ -215,6 +225,9 @@ class HierarchicalMemory:
         # Stats
         self.total_stored = 0
         self.total_consolidated = 0
+
+        # Temporal metadata — set when state is loaded from disk
+        self.last_saved_at: float | None = None
 
     # ------------------------------------------------------------------
     # Store
@@ -321,61 +334,65 @@ class HierarchicalMemory:
         # Detect query domain from keywords
         query_domain = self._infer_domain(query_words)
 
-        # Pre-filter using inverted index for lexical retrieval
-        # Collect IDs of items that share at least one word/stem with the query
-        candidate_ids: set[str] | None = None
-        if query_vec is None and self._word_index:
-            candidate_ids = set()
-            for word in query_words:
-                if word in self._word_index:
-                    candidate_ids.update(self._word_index[word])
-                stem = _simple_stem(word)
-                if stem != word and stem in self._word_index:
-                    candidate_ids.update(self._word_index[stem])
+        tier_boost_map = {
+            MemoryTier.SEMANTIC: 0.08,
+            MemoryTier.LONG_TERM: 0.04,
+            MemoryTier.SHORT_TERM: 0.02,
+            MemoryTier.WORKING: 0.0,
+        }
 
-        for tier, store in self._iter_tiers():
-            # Tier weight: higher tiers get a small bonus (semantic > LT > ST > working)
-            tier_boost = {
-                MemoryTier.SEMANTIC: 0.08,
-                MemoryTier.LONG_TERM: 0.04,
-                MemoryTier.SHORT_TERM: 0.02,
-                MemoryTier.WORKING: 0.0,
-            }.get(tier, 0.0)
-
-            for item in store:
-                # Skip expired or superseded memories
-                if item.is_expired or item.is_superseded:
+        if query_vec is not None and self._vec_index is not None:
+            # Fast path: VectorIndex batch cosine similarity — O(k log n) vs O(n)
+            # Fetch a broad candidate pool then apply per-item bonuses.
+            k = min(max(max_results * 10, 50), len(self._items_by_exp_id) or 1)
+            top_matches = self._vec_index.query(query_vec, k=k)
+            for exp_id, cos_sim in top_matches:
+                item = self._items_by_exp_id.get(exp_id)
+                if item is None or item.is_expired or item.is_superseded:
                     continue
-
-                # Skip items that can't match (lexical pre-filter)
-                if candidate_ids is not None and item.experience.id not in candidate_ids:
+                if item.experience.private:
                     continue
-
-                if query_vec is not None:
-                    base_score = self._embedding_relevance(item, query_vec)
-                else:
-                    base_score = self._relevance(item, query_words)
-
-                # Domain affinity: bonus if query and item share a domain
-                domain_bonus = 0.0
-                if query_domain and item.experience.domain == query_domain:
-                    domain_bonus = 0.05
-
-                # Access frequency signal: frequently-accessed memories are likely useful
+                tier_boost = tier_boost_map.get(item.tier, 0.0)
+                domain_bonus = 0.05 if (query_domain and item.experience.domain == query_domain) else 0.0
                 access_bonus = min(0.05, item.access_count * 0.01)
-
-                score = min(1.0, base_score + tier_boost + domain_bonus + access_bonus)
-
+                score = min(1.0, cos_sim + tier_boost + domain_bonus + access_bonus)
                 if score > self.cfg.relevance_threshold:
                     item.touch()
-                    results.append(
-                        RetrievalResult(
-                            memory=item,
-                            score=score,
-                            source_tier=tier,
-                            strategy="embedding" if query_vec else "lexical",
-                        )
-                    )
+                    results.append(RetrievalResult(
+                        memory=item, score=score,
+                        source_tier=item.tier, strategy="embedding",
+                    ))
+        else:
+            # Lexical path: pre-filter via inverted index then iterate
+            candidate_ids: set[str] | None = None
+            if self._word_index:
+                candidate_ids = set()
+                for word in query_words:
+                    if word in self._word_index:
+                        candidate_ids.update(self._word_index[word])
+                    stem = _simple_stem(word)
+                    if stem != word and stem in self._word_index:
+                        candidate_ids.update(self._word_index[stem])
+
+            for tier, store in self._iter_tiers():
+                tier_boost = tier_boost_map.get(tier, 0.0)
+                for item in store:
+                    if item.is_expired or item.is_superseded:
+                        continue
+                    if item.experience.private:
+                        continue
+                    if candidate_ids is not None and item.experience.id not in candidate_ids:
+                        continue
+                    base_score = self._relevance(item, query_words)
+                    domain_bonus = 0.05 if (query_domain and item.experience.domain == query_domain) else 0.0
+                    access_bonus = min(0.05, item.access_count * 0.01)
+                    score = min(1.0, base_score + tier_boost + domain_bonus + access_bonus)
+                    if score > self.cfg.relevance_threshold:
+                        item.touch()
+                        results.append(RetrievalResult(
+                            memory=item, score=score,
+                            source_tier=tier, strategy="lexical",
+                        ))
 
         results.sort(key=lambda r: r.score, reverse=True)
 
@@ -729,6 +746,15 @@ class HierarchicalMemory:
                 result.append(d)
             return result
 
+        # Collect only live experience IDs to prune orphan embeddings.
+        # Orphans accumulate when memories are evicted/consolidated but their
+        # embedding vectors remain in _embeddings. Without pruning, the dict
+        # grows unboundedly and inflates save/load time.
+        live_exp_ids: set[str] = set()
+        for _, store in self._iter_tiers():
+            for item in store:
+                live_exp_ids.add(item.experience.id)
+
         state = {
             "version": "0.4.0",
             "saved_at": time.time(),
@@ -736,7 +762,7 @@ class HierarchicalMemory:
             "short_term": _serialize_items(self.short_term),
             "long_term": _serialize_items(self.long_term.values()),
             "semantic": _serialize_items(self.semantic.values()),
-            "embeddings": {k: v for k, v in self._embeddings.items()},
+            "embeddings": {k: v for k, v in self._embeddings.items() if k in live_exp_ids},
             "stats": {
                 "total_stored": self.total_stored,
                 "total_consolidated": self.total_consolidated,
@@ -755,6 +781,9 @@ class HierarchicalMemory:
             return
 
         data = json.loads(path.read_text(encoding="utf-8"))
+
+        # Capture when this state was last saved (for elapsed-time awareness)
+        self.last_saved_at = data.get("saved_at")
 
         def _deserialize_items(items_data: list[dict]) -> list[MemoryItem]:
             result = []
@@ -810,9 +839,19 @@ class HierarchicalMemory:
                                 self._word_index[word] = set()
                             self._word_index[word].add(item.experience.id)
 
-                # Rebuild VectorIndex from restored embeddings
+                # Rebuild VectorIndex from restored embeddings.
+                # Guard against dimension mismatch (e.g. state saved with
+                # HashEmbedder 128-dim then loaded with SentenceTransformer
+                # 384-dim).  Re-embed stale vectors using the current embedder.
                 if self._vec_index is not None and item.experience.id in self._embeddings:
-                    self._vec_index.add(item.experience.id, self._embeddings[item.experience.id])
+                    stored_emb = self._embeddings[item.experience.id]
+                    if len(stored_emb) == self._vec_index.dim:
+                        self._vec_index.add(item.experience.id, stored_emb)
+                    elif self.embedder is not None:
+                        new_emb = self.embedder.embed(item.experience.content)
+                        self._embeddings[item.experience.id] = new_emb
+                        self._vec_index.add(item.experience.id, new_emb)
+                    # else: no embedder, no vec index entry (lexical fallback)
 
         # Restore stats
         stats = data.get("stats", {})
@@ -900,6 +939,9 @@ class HierarchicalMemory:
         since: float | None = None,
         until: float | None = None,
         min_confidence: float | None = None,
+        min_importance: float | None = None,
+        sort_by: str = "relevance",
+        concept_tags: "list | None" = None,
         include_superseded: bool = False,
         include_expired: bool = False,
     ) -> list[RetrievalResult]:
@@ -918,6 +960,12 @@ class HierarchicalMemory:
             since: Only include memories stored after this Unix timestamp.
             until: Only include memories stored before this Unix timestamp.
             min_confidence: Only include memories with confidence ≥ this value.
+            min_importance: Only include memories with importance ≥ this value.
+            sort_by: How to rank results when ``query`` is empty.
+                ``"relevance"`` (default) sorts by importance × confidence.
+                ``"recency"`` sorts by stored_at descending (most recent first).
+                ``"importance"`` sorts by importance descending.
+                Ignored when a non-empty query is provided (semantic/lexical score ranks).
             include_superseded: If False (default), skip superseded memories.
             include_expired: If False (default), skip TTL-expired memories.
 
@@ -934,6 +982,8 @@ class HierarchicalMemory:
                     continue
                 if not include_superseded and item.is_superseded:
                     continue
+                if item.experience.private:
+                    continue
                 # Field filters
                 if namespace is not None and exp.namespace != namespace:
                     continue
@@ -949,10 +999,41 @@ class HierarchicalMemory:
                     continue
                 if min_confidence is not None and exp.confidence < min_confidence:
                     continue
+                if min_importance is not None and exp.importance < min_importance:
+                    continue
+                if concept_tags is not None and not any(t in exp.concept_tags for t in concept_tags):
+                    continue
                 candidate_items.append(item)
 
         if not candidate_items:
             return []
+
+        # Filter-only mode: empty query → skip semantic scoring, order by sort_by
+        if not query.strip():
+            if sort_by == "recency":
+                candidate_items.sort(key=lambda i: i.experience.timestamp, reverse=True)
+                score_fn = lambda i: i.experience.timestamp  # noqa: E731
+                strategy = "filtered+recency"
+            elif sort_by == "importance":
+                candidate_items.sort(key=lambda i: i.experience.importance, reverse=True)
+                score_fn = lambda i: i.experience.importance  # noqa: E731
+                strategy = "filtered+importance"
+            else:  # "relevance" (default)
+                candidate_items.sort(
+                    key=lambda i: i.experience.importance * i.experience.confidence,
+                    reverse=True,
+                )
+                score_fn = lambda i: i.experience.importance * i.experience.confidence  # noqa: E731
+                strategy = "filtered+relevance"
+            return [
+                RetrievalResult(
+                    memory=item,
+                    score=score_fn(item),
+                    source_tier=item.tier,
+                    strategy=strategy,
+                )
+                for item in candidate_items[:max_results]
+            ]
 
         # Score candidates using the full retrieval pipeline
         query_vec: list[float] | None = None
