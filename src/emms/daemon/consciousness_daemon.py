@@ -96,7 +96,7 @@ class ConsciousnessDaemon:
         scheduler_kwargs: dict | None = None,
     ) -> None:
         self.state_path = state_path
-        self.save_after_jobs = save_after_jobs or {"dream", "reflect", "self_model_update", "consolidation"}
+        self.save_after_jobs = save_after_jobs or {"dream", "reflect", "self_model_update", "consolidation", "insight_discovery"}
         self.scheduler_kwargs = scheduler_kwargs or {}
         self._running = False
 

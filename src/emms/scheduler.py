@@ -122,6 +122,7 @@ class MemoryScheduler:
         dream_interval: float = 3600.0,
         reflect_interval: float = 1800.0,
         self_model_interval: float = 900.0,
+        insight_interval: float = 1800.0,
         tick: float = 1.0,
     ) -> None:
         self.emms = emms
@@ -140,6 +141,8 @@ class MemoryScheduler:
             "dream":            ScheduledJob("dream",            dream_interval),
             "reflect":          ScheduledJob("reflect",          reflect_interval),
             "self_model_update":ScheduledJob("self_model_update",self_model_interval),
+            # Cross-domain insight discovery (Google ADK pattern)
+            "insight_discovery":ScheduledJob("insight_discovery", insight_interval),
         }
 
         # Custom job registry: name → async coroutine factory (takes no args)
@@ -317,6 +320,28 @@ class MemoryScheduler:
                     emms.events.emit("identity.self_model_updated", {"result": str(result)[:200]})
             except Exception as e:
                 logger.warning("Scheduler [self_model_update] error: %s", e)
+
+        elif name == "insight_discovery":
+            try:
+                report = emms.discover_insights(
+                    session_id="daemon",
+                    max_insights=5,
+                    min_bridge_weight=0.4,
+                    rebuild_graph=True,
+                )
+                logger.info(
+                    "Scheduler [insight_discovery]: bridges=%d insights=%d new_ids=%s",
+                    report.bridges_found, report.insights_generated,
+                    report.new_memory_ids[:3],
+                )
+                if report.insights_generated:
+                    emms.events.emit("memory.insights_discovered", {
+                        "bridges": report.bridges_found,
+                        "insights": report.insights_generated,
+                        "new_ids": report.new_memory_ids,
+                    })
+            except Exception as e:
+                logger.warning("Scheduler [insight_discovery] error: %s", e)
 
     # ------------------------------------------------------------------
     # Built-in helpers
