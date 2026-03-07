@@ -24,6 +24,7 @@ With embeddings + ChromaDB:
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
 import time
 from pathlib import Path
@@ -300,7 +301,22 @@ class EMMS:
     # ------------------------------------------------------------------
 
     def save(self, memory_path: str | Path | None = None) -> None:
-        """Save identity, memory state, graph state, procedural memory, consciousness, and SRS to disk."""
+        """Save all state to disk, using a file lock to prevent daemon/MCP race conditions."""
+        lock_fd = None
+        if memory_path is not None:
+            lock_path = Path(memory_path).parent / ".emms_save.lock"
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_fd = open(lock_path, "w")
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            self._save_unlocked(memory_path)
+        finally:
+            if lock_fd:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd.close()
+
+    def _save_unlocked(self, memory_path: str | Path | None = None) -> None:
+        """Inner save (called under file lock)."""
         self.identity.save()
         if memory_path is not None:
             memory_path = Path(memory_path)
@@ -363,7 +379,22 @@ class EMMS:
         return getattr(self.memory, "last_saved_at", None)
 
     def load(self, memory_path: str | Path | None = None) -> None:
-        """Load memory state, graph state, procedural memory, consciousness, and SRS from disk."""
+        """Load all state from disk, using a shared lock to avoid reading mid-write."""
+        lock_fd = None
+        if memory_path is not None:
+            lock_path = Path(memory_path).parent / ".emms_save.lock"
+            if lock_path.exists():
+                lock_fd = open(lock_path, "r")
+                fcntl.flock(lock_fd, fcntl.LOCK_SH)
+        try:
+            self._load_unlocked(memory_path)
+        finally:
+            if lock_fd:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd.close()
+
+    def _load_unlocked(self, memory_path: str | Path | None = None) -> None:
+        """Inner load (called under shared lock)."""
         if memory_path is not None:
             memory_path = Path(memory_path)
             self.memory.load_state(memory_path)

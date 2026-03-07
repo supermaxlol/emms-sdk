@@ -7,16 +7,23 @@ state back to disk after each cycle.
 It bridges the gap between sessions: when Claude reconnects, the memory system
 has already been dreaming, consolidating, and updating its self-model.
 
+New in v2: Trading bot watchers + consciousness metric bootstrapping.
+  - Passively tails Margin-bot and ETrade-bot logs (read-only)
+  - Parses trade signals, trend changes, PnL into EMMS experiences
+  - Runs consciousness metrics (ICS/TAI/CRR) every 6 hours
+  - Scans for contradictions to bootstrap CRR
+  - Stores identity reflections to bootstrap ICS
+
 Usage::
 
     # Start in background
-    python run_daemon.py &
+    python -m emms.daemon.consciousness_daemon &
 
     # Or via launchctl (macOS):
     launchctl load ~/Library/LaunchAgents/com.emms.consciousness.plist
 
 Status file written to: ~/.emms/daemon_status.json
-Log file: /tmp/emms_daemon.log
+Log file: ~/.emms/daemon.log
 """
 
 from __future__ import annotations
@@ -34,7 +41,8 @@ from pathlib import Path
 # Logging
 # ---------------------------------------------------------------------------
 
-LOG_FILE = "/tmp/emms_daemon.log"
+EMMS_DIR = Path.home() / ".emms"
+LOG_FILE = str(EMMS_DIR / "daemon.log")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -129,6 +137,17 @@ class ConsciousnessDaemon:
 
         scheduler = MemoryScheduler(emms, **default_kwargs)
 
+        # NOTE: Bot watchers moved to TraderDaemon (separate EMMS instance)
+
+        # --- Register consciousness metrics job ---
+        self._register_metrics_job(scheduler, emms)
+
+        # --- Register identity bootstrapper ---
+        self._register_identity_bootstrap(scheduler, emms)
+
+        # --- Register contradiction scanner (CRR bootstrap) ---
+        self._register_contradiction_scanner(scheduler, emms)
+
         # Patch scheduler loop to save after important jobs
         original_run_builtin = scheduler._run_builtin
 
@@ -171,6 +190,118 @@ class ConsciousnessDaemon:
             self._save_emms(emms)
             _write_status("stopped")
             logger.info("ConsciousnessDaemon stopped cleanly")
+
+    # ------------------------------------------------------------------
+    # Watcher & job registration
+    # ------------------------------------------------------------------
+
+    def _register_watchers(self, scheduler, emms) -> None:
+        """Register trading bot log watchers as scheduler jobs."""
+        try:
+            from emms.watchers.trading_bot import (
+                create_margin_bot_watcher,
+                create_etrade_bot_watcher,
+                ingest_events,
+            )
+            watchers = []
+            try:
+                watchers.append(create_margin_bot_watcher())
+                logger.info("Daemon: registered margin-bot watcher")
+            except Exception as exc:
+                logger.warning("Daemon: margin-bot watcher failed: %s", exc)
+            try:
+                watchers.append(create_etrade_bot_watcher())
+                logger.info("Daemon: registered etrade-bot watcher")
+            except Exception as exc:
+                logger.warning("Daemon: etrade-bot watcher failed: %s", exc)
+
+            if not watchers:
+                return
+
+            async def _poll_bots():
+                total = 0
+                for w in watchers:
+                    try:
+                        events = w.poll()
+                        if events:
+                            total += ingest_events(emms, events)
+                    except Exception as exc:
+                        logger.warning("Daemon: watcher %s poll error: %s", w.bot_name, exc)
+                if total:
+                    self._save_emms(emms)
+
+            scheduler.register("bot_watchers", _poll_bots, interval_seconds=30.0)
+            self.save_after_jobs.add("bot_watchers")
+
+        except ImportError as exc:
+            logger.warning("Daemon: watchers module not available: %s", exc)
+
+    def _register_metrics_job(self, scheduler, emms) -> None:
+        """Run consciousness metrics every 6 hours."""
+        async def _run_metrics():
+            self._run_metrics(emms)
+
+        scheduler.register("consciousness_metrics", _run_metrics, interval_seconds=21600.0)
+
+    def _register_identity_bootstrap(self, scheduler, emms) -> None:
+        """Store identity reflections every 4 hours to bootstrap ICS."""
+        async def _identity_reflect():
+            try:
+                from emms.core.models import Experience
+
+                # Self-model update generates beliefs
+                report = emms.update_self_model()
+                if not report:
+                    return
+
+                beliefs = report.get("beliefs", []) if isinstance(report, dict) else getattr(report, "beliefs", [])
+                consistency = report.get("consistency_score", 0) if isinstance(report, dict) else getattr(report, "consistency_score", 0)
+                capabilities = report.get("capability_profile", {}) if isinstance(report, dict) else getattr(report, "capability_profile", {})
+
+                # Store a self-description memory (domain=identity, tagged for ICS)
+                cap_str = ", ".join(f"{k}={v:.2f}" for k, v in (capabilities.items() if isinstance(capabilities, dict) else []))
+                belief_str = "; ".join(
+                    getattr(b, "content", str(b))[:60] for b in (beliefs[:3] if beliefs else [])
+                )
+                content = (
+                    f"Self-model update: consistency={consistency:.2f}. "
+                    f"Capabilities: {cap_str or 'none yet'}. "
+                    f"Core beliefs: {belief_str or 'none yet'}. "
+                    f"Total memories: {emms.stats.get('memory', {}).get('total', 0) if hasattr(emms, 'stats') else '?'}."
+                )
+
+                exp = Experience(
+                    content=content,
+                    domain="identity",
+                    importance=0.8,
+                    obs_type="discovery",
+                    concept_tags=["how-it-works", "pattern"],
+                    session_id="daemon",
+                    namespace="default",
+                )
+                emms.store(exp)
+                self._save_emms(emms)
+                logger.info("Daemon: stored identity reflection (ICS bootstrap)")
+            except Exception as exc:
+                logger.warning("Daemon: identity bootstrap error: %s", exc)
+
+        scheduler.register("identity_bootstrap", _identity_reflect, interval_seconds=14400.0)
+
+    def _register_contradiction_scanner(self, scheduler, emms) -> None:
+        """Scan for contradictions every 3 hours to bootstrap CRR."""
+        async def _scan_contradictions():
+            try:
+                from emms.metrics.crr import ContradictionTracker
+                tracker = ContradictionTracker(emms)
+                report = tracker.scan_and_record()
+                logger.info(
+                    "Daemon: CRR scan — tracked=%d resolved=%d active=%d new=%d",
+                    report.total_tracked, report.resolved, report.active, report.new_this_scan,
+                )
+            except Exception as exc:
+                logger.warning("Daemon: CRR scan error: %s", exc)
+
+        scheduler.register("contradiction_scan", _scan_contradictions, interval_seconds=10800.0)
 
     # ------------------------------------------------------------------
     # Private
