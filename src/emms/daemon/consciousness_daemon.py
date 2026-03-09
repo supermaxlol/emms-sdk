@@ -148,6 +148,12 @@ class ConsciousnessDaemon:
         # --- Register contradiction scanner (CRR bootstrap) ---
         self._register_contradiction_scanner(scheduler, emms)
 
+        # --- Register LLM consolidation (Google always-on-agent pattern) ---
+        self._register_llm_consolidation(scheduler, emms)
+
+        # --- Register bidirectional edge sync ---
+        self._register_bidirectional_sync(scheduler, emms)
+
         # Patch scheduler loop to save after important jobs
         original_run_builtin = scheduler._run_builtin
 
@@ -174,6 +180,15 @@ class ConsciousnessDaemon:
         signal.signal(signal.SIGINT, _handle_signal)
 
         await scheduler.start()
+
+        # Start HTTP REST API (non-blocking daemon thread)
+        try:
+            from emms.adapters.http_server import start_server
+            start_server(emms, port=8765)
+            logger.info("EMMS HTTP API listening on http://127.0.0.1:8765")
+        except Exception as exc:
+            logger.warning("Daemon: HTTP server failed to start: %s", exc)
+
         _write_status("running", scheduler_jobs=list(scheduler._jobs.keys()))
         logger.info("ConsciousnessDaemon running — scheduler started with %d jobs", len(scheduler._jobs))
 
@@ -302,6 +317,36 @@ class ConsciousnessDaemon:
                 logger.warning("Daemon: CRR scan error: %s", exc)
 
         scheduler.register("contradiction_scan", _scan_contradictions, interval_seconds=10800.0)
+
+    def _register_llm_consolidation(self, scheduler, emms) -> None:
+        """Auto-consolidate long-term memory every 30 min (Google always-on-agent pattern)."""
+        async def _llm_consolidate():
+            try:
+                result = await emms.llm_consolidate(threshold=0.7, tier="long_term", max_clusters=20)
+                logger.info(
+                    "Daemon [llm_consolidate]: clusters=%d synthesised=%d stored=%d elapsed=%.1fs",
+                    result.clusters_found, result.synthesised, result.stored, result.elapsed_s,
+                )
+                self._save_emms(emms)
+            except Exception as exc:
+                logger.warning("Daemon: llm_consolidate job failed: %s", exc)
+
+        scheduler.register("llm_consolidate", _llm_consolidate, interval_seconds=1800.0)
+
+    def _register_bidirectional_sync(self, scheduler, emms) -> None:
+        """Ensure association graph edges are bidirectional every 30 min."""
+        async def _bidirectional_sync():
+            try:
+                ag = getattr(emms, "_association_graph", None)
+                if ag is None:
+                    return  # Graph not built yet — nothing to sync
+                n = ag.ensure_bidirectional()
+                if n:
+                    logger.info("Daemon [bidirectional_sync]: added %d reverse edges", n)
+            except Exception as exc:
+                logger.warning("Daemon: bidirectional_sync job failed: %s", exc)
+
+        scheduler.register("bidirectional_sync", _bidirectional_sync, interval_seconds=1800.0)
 
     # ------------------------------------------------------------------
     # Private

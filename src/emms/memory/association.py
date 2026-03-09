@@ -141,6 +141,30 @@ class AssociationGraph:
         self._adj.setdefault(id_b, []).append(edge_ba)
         return edge_ab
 
+    def ensure_bidirectional(self) -> int:
+        """Ensure every A→B edge has a corresponding B→A reverse edge.
+
+        ``associate()`` already creates bidirectional edges, but edges added
+        via other paths (entity co-occurrence in graph.py, direct _adj writes)
+        may be one-directional. Call this periodically to keep the graph
+        consistent for spreading activation.
+
+        Returns:
+            Number of reverse edges added.
+        """
+        added = 0
+        for source_id, edges in list(self._adj.items()):
+            for edge in edges:
+                target_edges = self._adj.get(edge.target_id, [])
+                has_reverse = any(e.target_id == source_id for e in target_edges)
+                if not has_reverse:
+                    reverse = AssociationEdge(
+                        edge.target_id, source_id, edge.edge_type, edge.weight
+                    )
+                    self._adj.setdefault(edge.target_id, []).append(reverse)
+                    added += 1
+        return added
+
     def auto_associate(self, items: list[Any] | None = None) -> int:
         """Automatically build edges from all stored memory items.
 

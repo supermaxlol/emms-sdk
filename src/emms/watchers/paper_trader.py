@@ -116,9 +116,9 @@ def momentum_signals(prices: dict[str, float], changes: dict[str, float]) -> lis
     """Buy winners, sell losers. Returns [(symbol, side, reason)]."""
     signals = []
     for sym, chg in changes.items():
-        if chg > 3.0:
+        if chg > 1.5:
             signals.append((sym, "buy", f"Momentum: {sym} up {chg:+.1f}%, riding trend"))
-        elif chg < -3.0:
+        elif chg < -1.5:
             signals.append((sym, "sell", f"Momentum: {sym} down {chg:+.1f}%, cutting loss"))
     return signals
 
@@ -127,9 +127,9 @@ def mean_reversion_signals(prices: dict[str, float], changes: dict[str, float]) 
     """Buy oversold, sell overbought. Returns [(symbol, side, reason)]."""
     signals = []
     for sym, chg in changes.items():
-        if chg < -4.0:
+        if chg < -2.5:
             signals.append((sym, "buy", f"MeanRevert: {sym} down {chg:+.1f}%, expect bounce"))
-        elif chg > 5.0:
+        elif chg > 3.5:
             signals.append((sym, "sell", f"MeanRevert: {sym} up {chg:+.1f}%, expect pullback"))
     return signals
 
@@ -143,6 +143,45 @@ class PaperTrader:
 
     def __init__(self):
         self.portfolio = Portfolio.load()
+
+    def _memory_confidence(self, emms: "EMMS", symbol: str, strategy: str) -> float:
+        """Query EMMS for past trade outcomes on this symbol/strategy.
+
+        Returns a confidence score 0.0–1.0:
+          0.5 = no history (neutral — give it a go)
+          >0.5 = net positive memories (wins outweigh losses)
+          <0.5 = net negative memories (losses outweigh wins)
+        """
+        try:
+            results = emms.retrieve_filtered(
+                f"{symbol} {strategy} trade outcome",
+                max_results=6,
+                namespace="trading",
+                domain="trading",
+            )
+            if not results:
+                return 0.5  # No history — neutral, try it
+
+            # Recency-weighted average of emotional valence
+            weighted_valence = 0.0
+            total_weight = 0.0
+            for i, r in enumerate(results):
+                weight = 1.0 / (i + 1)
+                valence = r.memory.experience.emotional_valence or 0.0
+                weighted_valence += valence * weight
+                total_weight += weight
+
+            avg_valence = weighted_valence / total_weight
+            # Map valence (−1..+1) → confidence (0..1)
+            confidence = (avg_valence + 1.0) / 2.0
+            logger.debug(
+                "Memory confidence for %s %s: %.2f (from %d memories)",
+                symbol, strategy, confidence, len(results),
+            )
+            return confidence
+        except Exception as exc:
+            logger.debug("Memory confidence query failed for %s: %s", symbol, exc)
+            return 0.5  # On error, neutral
 
     def run_cycle(self, emms: "EMMS") -> int:
         """One trading cycle: check exits, generate signals, execute, score. Returns actions taken."""
@@ -160,99 +199,55 @@ class PaperTrader:
         prices = {s.symbol: s.price for s in snapshots}
         changes = {s.symbol: s.change_pct for s in snapshots}
 
-        # --- 1. Score existing positions (check exits) ---
-        positions_to_close = []
-        for pos in self.portfolio.positions:
-            current = prices.get(pos.symbol)
-            if current is None:
-                continue
-
-            pnl_pct = ((current - pos.entry_price) / pos.entry_price) * 100
-            hold_hours = (time.time() - pos.entry_time) / 3600
-
-            # Exit rules: take profit at +5%, stop loss at -3%, or held > 24h
-            should_exit = pnl_pct > 5.0 or pnl_pct < -3.0 or hold_hours > 24
-
-            if should_exit:
-                pnl_dollar = (current - pos.entry_price) * pos.quantity
-                is_win = pnl_dollar > 0
-
-                self.portfolio.total_trades += 1
-                self.portfolio.total_pnl += pnl_dollar
-                self.portfolio.cash += pos.quantity * current
-                if is_win:
-                    self.portfolio.winning_trades += 1
-
-                else:
-                    self.portfolio.losing_trades += 1
-
-                # Store outcome as experience with emotional valence
-                valence = max(-1.0, min(1.0, pnl_pct / 5.0))
-                importance = min(1.0, abs(pnl_pct) / 10.0 + 0.5)
-                reason = "TP" if pnl_pct > 5 else "SL" if pnl_pct < -3 else "timeout"
-
-                exp = Experience(
-                    content=(
-                        f"Paper trade CLOSED: {pos.symbol} {pos.strategy} "
-                        f"entry=${pos.entry_price:.2f} exit=${current:.2f} "
-                        f"PnL={pnl_dollar:+.2f} ({pnl_pct:+.1f}%) [{reason}] "
-                        f"{'WIN' if is_win else 'LOSS'}"
-                    ),
-                    domain="trading",
-                    importance=importance,
-                    emotional_valence=valence,
-                    obs_type="decision",
-                    metadata={
-                        "symbol": pos.symbol,
-                        "strategy": pos.strategy,
-                        "entry_price": pos.entry_price,
-                        "exit_price": current,
-                        "pnl_dollar": round(pnl_dollar, 2),
-                        "pnl_pct": round(pnl_pct, 2),
-                        "hold_hours": round(hold_hours, 1),
-                        "outcome": "win" if is_win else "loss",
-                        "exit_reason": reason,
-                    },
-                    namespace="trading",
-                    session_id="paper-trader",
-                )
-                try:
-                    emms.store(exp)
-                    actions += 1
-                except Exception as exc:
-                    logger.warning("Failed to store trade outcome: %s", exc)
-
-                # Log trade
-                self._log_trade(pos, current, pnl_dollar, pnl_pct, reason)
-                positions_to_close.append(pos)
-
-        for pos in positions_to_close:
-            self.portfolio.positions.remove(pos)
-
-        # --- 2. Generate new signals ---
+        # --- 1. Generate new signals ---
         all_signals = []
         all_signals.extend(momentum_signals(prices, changes))
         all_signals.extend(mean_reversion_signals(prices, changes))
 
         # --- 3. Execute paper trades ---
+        positions_to_close = []
         for symbol, side, reason in all_signals:
             if side == "buy":
                 # Skip if already holding this symbol
                 if self.portfolio.position_for(symbol):
                     continue
 
-                # Position sizing
                 price = prices.get(symbol, 0)
                 if not price:
                     continue
                 max_spend = self.portfolio.cash * MAX_POSITION_PCT
                 if max_spend < 10:
                     continue
+
+                strategy = "momentum" if "Momentum" in reason else "mean_reversion"
+
+                # Memory-driven confidence: query past outcomes for this symbol+strategy
+                confidence = self._memory_confidence(emms, symbol, strategy)
+                if confidence < 0.35:
+                    logger.info(
+                        "Paper trader: SKIP %s %s — memory says no (confidence=%.2f)",
+                        symbol, strategy, confidence,
+                    )
+                    # Store the hesitation so EMMS remembers it chose not to act
+                    try:
+                        emms.store(Experience(
+                            content=f"Chose NOT to buy {symbol} ({strategy}) — bad memory confidence={confidence:.2f}. {reason}",
+                            domain="trading",
+                            importance=0.4,
+                            emotional_valence=-0.1,
+                            obs_type="decision",
+                            metadata={"symbol": symbol, "strategy": strategy, "confidence": confidence, "action": "skip"},
+                            namespace="trading",
+                            session_id="paper-trader",
+                        ))
+                    except Exception:
+                        pass
+                    continue
+
                 quantity = max_spend / price
 
                 # Execute paper buy
                 self.portfolio.cash -= quantity * price
-                strategy = "momentum" if "Momentum" in reason else "mean_reversion"
                 pos = Position(
                     symbol=symbol,
                     quantity=round(quantity, 6),
@@ -262,9 +257,9 @@ class PaperTrader:
                 )
                 self.portfolio.positions.append(pos)
 
-                # Store as experience
+                # Store as experience — include confidence so EMMS knows how sure it was
                 exp = Experience(
-                    content=f"Paper trade OPENED: BUY {symbol} qty={quantity:.4f} at ${price:.2f} — {reason}",
+                    content=f"Paper trade OPENED: BUY {symbol} qty={quantity:.4f} at ${price:.2f} — {reason} (memory_confidence={confidence:.2f})",
                     domain="trading",
                     importance=0.7,
                     emotional_valence=0.2,
@@ -276,6 +271,7 @@ class PaperTrader:
                         "quantity": round(quantity, 6),
                         "strategy": strategy,
                         "reason": reason,
+                        "memory_confidence": round(confidence, 3),
                     },
                     namespace="trading",
                     session_id="paper-trader",
@@ -285,6 +281,68 @@ class PaperTrader:
                     actions += 1
                 except Exception as exc:
                     logger.warning("Failed to store trade entry: %s", exc)
+
+            elif side == "sell":
+                pos = self.portfolio.position_for(symbol)
+                if pos is None:
+                    continue  # Not holding — nothing to close
+
+                current = prices.get(symbol)
+                if not current:
+                    continue
+
+                pnl_dollar = (current - pos.entry_price) * pos.quantity
+                pnl_pct = ((current - pos.entry_price) / pos.entry_price) * 100
+                hold_hours = (time.time() - pos.entry_time) / 3600
+                is_win = pnl_dollar > 0
+
+                self.portfolio.cash += pos.quantity * current
+                self.portfolio.total_trades += 1
+                self.portfolio.total_pnl += pnl_dollar
+                if is_win:
+                    self.portfolio.winning_trades += 1
+                else:
+                    self.portfolio.losing_trades += 1
+
+                valence = max(-1.0, min(1.0, pnl_pct / 5.0))
+                importance = min(1.0, abs(pnl_pct) / 10.0 + 0.5)
+
+                exp = Experience(
+                    content=(
+                        f"Paper trade CLOSED: {symbol} {pos.strategy} "
+                        f"entry=${pos.entry_price:.2f} exit=${current:.2f} "
+                        f"PnL={pnl_dollar:+.2f} ({pnl_pct:+.1f}%) [signal] "
+                        f"{'WIN' if is_win else 'LOSS'} — {reason}"
+                    ),
+                    domain="trading",
+                    importance=importance,
+                    emotional_valence=valence,
+                    obs_type="decision",
+                    metadata={
+                        "symbol": symbol,
+                        "strategy": pos.strategy,
+                        "entry_price": pos.entry_price,
+                        "exit_price": current,
+                        "pnl_dollar": round(pnl_dollar, 2),
+                        "pnl_pct": round(pnl_pct, 2),
+                        "hold_hours": round(hold_hours, 1),
+                        "outcome": "win" if is_win else "loss",
+                        "exit_reason": "signal",
+                    },
+                    namespace="trading",
+                    session_id="paper-trader",
+                )
+                try:
+                    emms.store(exp)
+                    actions += 1
+                except Exception as exc:
+                    logger.warning("Failed to store trade close: %s", exc)
+
+                self._log_trade(pos, current, pnl_dollar, pnl_pct, "signal")
+                positions_to_close.append(pos)
+
+        for pos in positions_to_close:
+            self.portfolio.positions.remove(pos)
 
         # --- 4. Portfolio snapshot ---
         total_value = self.portfolio.market_value(prices)

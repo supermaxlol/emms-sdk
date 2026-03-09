@@ -258,7 +258,13 @@ class MemoryDecay:
         t_days = max(0.0, (now - last_access) / 86400.0)
 
         access_count = getattr(item, "access_count", 0) or 0
-        stability = self.base_stability + self.retrieval_boost * access_count
+
+        # Importance-weighted stability: high-importance memories decay slower
+        # importance=0 → 1x, importance=0.5 → 2.5x, importance=1.0 → 4x
+        _raw_imp = getattr(getattr(item, "experience", None), "importance", None)
+        importance = _raw_imp if _raw_imp is not None else 0.5
+        importance_factor = 1.0 + importance * 3.0
+        stability = (self.base_stability + self.retrieval_boost * access_count) * importance_factor
 
         # R = e^{-t/S}
         R = math.exp(-t_days / max(stability, 0.1))

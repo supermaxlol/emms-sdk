@@ -8,12 +8,15 @@ No API keys needed — uses free yfinance + public RSS feeds.
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+FETCH_TIMEOUT = 10  # seconds — prevents yfinance/feedparser from hanging forever
 
 if TYPE_CHECKING:
     from emms.emms import EMMS
@@ -69,57 +72,81 @@ class NewsItem:
 # Fetchers
 # ---------------------------------------------------------------------------
 
-def fetch_prices(symbols: list[str] | None = None) -> list[PriceSnapshot]:
-    """Fetch current prices from Yahoo Finance."""
-    symbols = symbols or ALL_SYMBOLS
+def _fetch_prices_blocking(symbols: list[str]) -> list[PriceSnapshot]:
+    """Blocking yfinance call — must run inside a thread with timeout."""
+    import yfinance as yf
     snapshots = []
-    try:
-        import yfinance as yf
-        tickers = yf.Tickers(" ".join(symbols))
-        for sym in symbols:
-            try:
-                t = tickers.tickers.get(sym)
-                if t is None:
-                    continue
-                info = t.fast_info
-                price = getattr(info, "last_price", None) or 0
-                prev = getattr(info, "previous_close", None) or price
-                if price and prev:
-                    change_pct = ((price - prev) / prev) * 100
-                    snapshots.append(PriceSnapshot(
-                        symbol=sym,
-                        price=round(price, 4),
-                        prev_close=round(prev, 4),
-                        change_pct=round(change_pct, 2),
-                        volume=getattr(info, "last_volume", 0) or 0,
-                    ))
-            except Exception as exc:
-                logger.debug("Price fetch failed for %s: %s", sym, exc)
-    except Exception as exc:
-        logger.warning("yfinance batch fetch failed: %s", exc)
+    tickers = yf.Tickers(" ".join(symbols))
+    for sym in symbols:
+        try:
+            t = tickers.tickers.get(sym)
+            if t is None:
+                continue
+            info = t.fast_info
+            price = getattr(info, "last_price", None) or 0
+            prev = getattr(info, "previous_close", None) or price
+            if price and prev:
+                change_pct = ((price - prev) / prev) * 100
+                snapshots.append(PriceSnapshot(
+                    symbol=sym,
+                    price=round(price, 4),
+                    prev_close=round(prev, 4),
+                    change_pct=round(change_pct, 2),
+                    volume=getattr(info, "last_volume", 0) or 0,
+                ))
+        except Exception as exc:
+            logger.debug("Price fetch failed for %s: %s", sym, exc)
     return snapshots
 
 
+def fetch_prices(symbols: list[str] | None = None) -> list[PriceSnapshot]:
+    """Fetch current prices from Yahoo Finance with a hard 10s timeout."""
+    symbols = symbols or ALL_SYMBOLS
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_fetch_prices_blocking, symbols)
+            return future.result(timeout=FETCH_TIMEOUT)
+    except concurrent.futures.TimeoutError:
+        logger.warning("yfinance fetch timed out after %ds — skipping", FETCH_TIMEOUT)
+        return []
+    except Exception as exc:
+        logger.warning("yfinance batch fetch failed: %s", exc)
+        return []
+
+
+def _fetch_feed_blocking(url: str, source: str, max_per_feed: int) -> list[NewsItem]:
+    """Blocking feedparser call — must run inside a thread with timeout."""
+    import feedparser
+    d = feedparser.parse(url)
+    items = []
+    for entry in d.entries[:max_per_feed]:
+        items.append(NewsItem(
+            title=entry.get("title", "")[:200],
+            source=source,
+            link=entry.get("link", ""),
+            published=entry.get("published", ""),
+        ))
+    return items
+
+
 def fetch_news(feeds: list[tuple[str, str]] | None = None, max_per_feed: int = 5) -> list[NewsItem]:
-    """Fetch latest headlines from RSS feeds."""
+    """Fetch latest headlines from RSS feeds with a hard 10s timeout per feed."""
     feeds = feeds or NEWS_FEEDS
     items = []
     try:
-        import feedparser
-        for url, source in feeds:
-            try:
-                d = feedparser.parse(url)
-                for entry in d.entries[:max_per_feed]:
-                    items.append(NewsItem(
-                        title=entry.get("title", "")[:200],
-                        source=source,
-                        link=entry.get("link", ""),
-                        published=entry.get("published", ""),
-                    ))
-            except Exception as exc:
-                logger.debug("RSS fetch failed for %s: %s", source, exc)
+        import feedparser  # noqa: F401 — confirm installed before looping
     except ImportError:
         logger.warning("feedparser not installed — skipping news")
+        return items
+    for url, source in feeds:
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_fetch_feed_blocking, url, source, max_per_feed)
+                items.extend(future.result(timeout=FETCH_TIMEOUT))
+        except concurrent.futures.TimeoutError:
+            logger.warning("RSS fetch timed out after %ds for %s — skipping", FETCH_TIMEOUT, source)
+        except Exception as exc:
+            logger.debug("RSS fetch failed for %s: %s", source, exc)
     return items
 
 
