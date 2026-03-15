@@ -1,0 +1,36 @@
+{
+  "name": "emms-mcp",
+  "version": "0.27.0",
+  "description": "MCP server with 129 cognitive memory tools for AI agents — persistent memory, emotional recall, knowledge graphs, metacognition, goal tracking, and more",
+  "bin": {
+    "emms-mcp": "./index.js"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "ai-agents",
+    "cognitive-architecture",
+    "model-context-protocol",
+    "knowledge-graph",
+    "ai-memory",
+    "claude",
+    "llm"
+  ],
+  "author": "Shehzad Ahmed",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supermaxlol/emms-mcp"
+  },
+  "homepage": "https://github.com/supermaxlol/emms-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/supermaxlol/emms-mcp/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "index.js",
+    "README.md"
+  ]
+}

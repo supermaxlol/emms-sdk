@@ -1,0 +1,18 @@
+name: emms-mcp
+description: "Persistent cognitive memory for AI agents — 129 MCP tools for storage, retrieval, reflection, emotional recall, knowledge graphs, metacognition, and more"
+install: "pip install emms-mcp"
+transport: stdio
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      stateFile:
+        type: string
+        description: "Path to state file"
+        default: "~/.emms/emms_state.json"
+  commandFunction: |-
+    (config) => ({
+      command: "uvx",
+      args: ["emms-mcp", "--state-file", config.stateFile || "~/.emms/emms_state.json"]
+    })

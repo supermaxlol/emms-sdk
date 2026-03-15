@@ -1,0 +1,28 @@
+{
+  "name": "emms-mcp",
+  "display_name": "EMMS — Enhanced Memory Management System",
+  "description": "Persistent cognitive memory for AI agents with 129 tools: storage, retrieval, reflection, emotional memory, knowledge graphs, goal tracking, metacognition, spaced repetition, dream consolidation, and more.",
+  "version": "0.27.0",
+  "author": "Shehzad Ahmed",
+  "license": "MIT",
+  "transport": "stdio",
+  "install": {
+    "pip": "pip install emms-mcp",
+    "npx": "npx -y emms-mcp",
+    "uvx": "uvx emms-mcp"
+  },
+  "categories": [
+    "memory",
+    "knowledge-management",
+    "ai-agents",
+    "cognitive-architecture"
+  ],
+  "tools_count": 129,
+  "config_schema": {
+    "EMMS_STATE_FILE": {
+      "type": "string",
+      "description": "Path to EMMS state file",
+      "default": "~/.emms/emms_state.json"
+    }
+  }
+}

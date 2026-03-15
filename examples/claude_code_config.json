@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "emms": {
+      "command": "uvx",
+      "args": ["emms-mcp"],
+      "env": {}
+    }
+  }
+}
