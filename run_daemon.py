@@ -3,7 +3,8 @@
 
 Run directly::
 
-    python run_daemon.py
+    python run_daemon.py          # v1: cron-based MemoryScheduler (26 jobs)
+    python run_daemon.py --v2     # v2: event-driven CognitiveLoop + APScheduler
 
 Or as a macOS LaunchAgent (auto-start on login):
     See ~/Library/LaunchAgents/com.emms.consciousness.plist
@@ -18,7 +19,9 @@ _src = os.path.join(_sdk_root, "src")
 if _src not in sys.path:
     sys.path.insert(0, _src)
 
-from emms.daemon.consciousness_daemon import main
-
 if __name__ == "__main__":
+    if "--v2" in sys.argv:
+        from emms.daemon.consciousness_daemon_v2 import main
+    else:
+        from emms.daemon.consciousness_daemon import main
     main()

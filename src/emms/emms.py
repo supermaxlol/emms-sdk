@@ -34,6 +34,7 @@ from emms.core.embeddings import EmbeddingProvider
 from emms.core.events import EventBus
 from emms.core.models import (
     Experience,
+    MemoryAnnotation,
     MemoryConfig,
     MemoryItem,
     MemoryTier,
@@ -134,6 +135,11 @@ class EMMS:
             lexical_threshold=self.cfg.dedup_lexical_threshold,
         )
         self.srs = SpacedRepetitionSystem(self.memory)
+
+        # v0.27.1: Annotation engine — volitional memory revision
+        from emms.memory.annotation import AnnotationEngine
+        self.annotation_engine = AnnotationEngine(self.memory)
+
         # Scheduler created lazily on start_scheduler() to avoid background
         # tasks being created before the event loop is running
         self._scheduler: "Any | None" = None
@@ -202,10 +208,24 @@ class EMMS:
         # 7. Identity integration
         id_result = self.identity.integrate(experience)
 
+        # 8. Live self-model update (Gap 6: incremental, not rebuilt)
+        live_sm_changes = self._get_live_self_model().update_from_experience(mem_item)
+
+        # 8b. Functional affect update (Gap 3: affect as processing modulator)
+        valence = getattr(experience, "emotional_valence", 0.0) or 0.0
+        if valence != 0.0 or hasattr(self, "_functional_affect"):
+            self._get_functional_affect().update_from_experience(
+                valence=valence, domain=experience.domain or "general"
+            )
+
+        # 8c. Temporal grounding (Gap 5: mark interaction time)
+        if hasattr(self, "_temporal_grounder"):
+            self._temporal_grounder.touch()
+
         self._store_count += 1
         elapsed = time.time() - t0
 
-        # 8. Emit event
+        # 9. Emit event
         event_data = {
             "experience_id": experience.id,
             "memory_id": mem_item.id,
@@ -224,6 +244,8 @@ class EMMS:
             "vector_indexed": self.memory._vec_index is not None,
             "graph_entities": graph_data.get("entities_found", 0),
             "consciousness": bool(consciousness_data),
+            "live_self_model_domain": live_sm_changes.get("domain", ""),
+            "live_self_model_drift": len(live_sm_changes.get("drift_events", [])),
             "elapsed_ms": round(elapsed * 1000, 2),
         }
 
@@ -367,6 +389,62 @@ class EMMS:
             if hasattr(self, "_curiosity_engine"):
                 curiosity_path = memory_path.parent / (memory_path.stem + "_curiosity.json")
                 self._curiosity_engine.save_state(curiosity_path)
+            # Save live self-model (Gap 6: persistent incremental self-model)
+            if hasattr(self, "_live_self_model"):
+                lsm_path = memory_path.parent / (memory_path.stem + "_live_self_model.json")
+                self._live_self_model.save_state(lsm_path)
+            # Save prompt adapter (Gap 2: prompt-level learning)
+            if hasattr(self, "_prompt_adapter"):
+                spa_path = memory_path.parent / (memory_path.stem + "_prompt_adapter.json")
+                self._prompt_adapter.save_state(spa_path)
+            # Save cognitive loop (Gap 1: continuous processing)
+            if hasattr(self, "_cognitive_loop"):
+                cl_path = memory_path.parent / (memory_path.stem + "_cognitive_loop.json")
+                self._cognitive_loop.save_state(cl_path)
+            # Save functional affect (Gap 3: affect as processing modulator)
+            if hasattr(self, "_functional_affect"):
+                fa_path = memory_path.parent / (memory_path.stem + "_affect.json")
+                self._functional_affect.save_state(fa_path)
+            # Save world sensor (Gap 5: grounding)
+            if hasattr(self, "_world_sensor"):
+                ws_path = memory_path.parent / (memory_path.stem + "_world_sensor.json")
+                self._world_sensor.save_state(ws_path)
+            # Save reality checker (Gap 5: grounding)
+            if hasattr(self, "_reality_checker"):
+                rc_path = memory_path.parent / (memory_path.stem + "_reality_checker.json")
+                self._reality_checker.save_state(rc_path)
+            # Save temporal grounder (Gap 5: grounding)
+            if hasattr(self, "_temporal_grounder"):
+                tg_path = memory_path.parent / (memory_path.stem + "_temporal.json")
+                self._temporal_grounder.save_state(tg_path)
+            # Save autonomy governor (Gap 4: agency)
+            if hasattr(self, "_autonomy_governor"):
+                ag_path = memory_path.parent / (memory_path.stem + "_governor.json")
+                self._autonomy_governor.save_state(ag_path)
+            # Save goal generator (Gap 4: agency)
+            if hasattr(self, "_goal_generator"):
+                gg_path = memory_path.parent / (memory_path.stem + "_goal_generator.json")
+                self._goal_generator.save_state(gg_path)
+            # Save hierarchical planner (Gap 4: agency)
+            if hasattr(self, "_planner"):
+                hp_path = memory_path.parent / (memory_path.stem + "_planner.json")
+                self._planner.save_state(hp_path)
+            # Save abductive reasoner (Gap 7: novel reasoning)
+            if hasattr(self, "_abductive_reasoner"):
+                ar_path = memory_path.parent / (memory_path.stem + "_abductive.json")
+                self._abductive_reasoner.save_state(ar_path)
+            # Save reasoning verifier (Gap 7: novel reasoning)
+            if hasattr(self, "_reasoning_verifier"):
+                rv_path = memory_path.parent / (memory_path.stem + "_verifier.json")
+                self._reasoning_verifier.save_state(rv_path)
+            # Save conceptual explorer (Gap 7: novel reasoning)
+            if hasattr(self, "_conceptual_explorer"):
+                ce_path = memory_path.parent / (memory_path.stem + "_explorer.json")
+                self._conceptual_explorer.save_state(ce_path)
+            # Save annotation archive (annotations survive memory eviction)
+            ann_path = memory_path.parent / (memory_path.stem + "_annotations.json")
+            self.annotation_engine.sync_archive()
+            self.annotation_engine.save_archive(ann_path)
             # Save consciousness state alongside memory
             if self._consciousness_enabled:
                 consciousness_path = memory_path.parent / (memory_path.stem + "_consciousness.json")
@@ -469,6 +547,62 @@ class EMMS:
                 if not hasattr(self, "_curiosity_engine"):
                     self._curiosity_engine = CuriosityEngine(memory=self.memory)
                 self._curiosity_engine.load_state(curiosity_path)
+            # Load live self-model (Gap 6: persistent incremental self-model)
+            lsm_path = memory_path.parent / (memory_path.stem + "_live_self_model.json")
+            if lsm_path.exists():
+                self._get_live_self_model().load_state(lsm_path)
+            # Load prompt adapter (Gap 2: prompt-level learning)
+            spa_path = memory_path.parent / (memory_path.stem + "_prompt_adapter.json")
+            if spa_path.exists():
+                self._get_prompt_adapter().load_state(spa_path)
+            # Load cognitive loop (Gap 1: continuous processing)
+            cl_path = memory_path.parent / (memory_path.stem + "_cognitive_loop.json")
+            if cl_path.exists():
+                self._get_cognitive_loop().load_state(cl_path)
+            # Load functional affect (Gap 3: affect as processing modulator)
+            fa_path = memory_path.parent / (memory_path.stem + "_affect.json")
+            if fa_path.exists():
+                self._get_functional_affect().load_state(fa_path)
+            # Load world sensor (Gap 5: grounding)
+            ws_path = memory_path.parent / (memory_path.stem + "_world_sensor.json")
+            if ws_path.exists():
+                self._get_world_sensor().load_state(ws_path)
+            # Load reality checker (Gap 5: grounding)
+            rc_path = memory_path.parent / (memory_path.stem + "_reality_checker.json")
+            if rc_path.exists():
+                self._get_reality_checker().load_state(rc_path)
+            # Load temporal grounder (Gap 5: grounding)
+            tg_path = memory_path.parent / (memory_path.stem + "_temporal.json")
+            if tg_path.exists():
+                self._get_temporal_grounder().load_state(tg_path)
+            # Load autonomy governor (Gap 4: agency)
+            ag_path = memory_path.parent / (memory_path.stem + "_governor.json")
+            if ag_path.exists():
+                self._get_autonomy_governor().load_state(ag_path)
+            # Load goal generator (Gap 4: agency)
+            gg_path = memory_path.parent / (memory_path.stem + "_goal_generator.json")
+            if gg_path.exists():
+                self._get_goal_generator().load_state(gg_path)
+            # Load hierarchical planner (Gap 4: agency)
+            hp_path = memory_path.parent / (memory_path.stem + "_planner.json")
+            if hp_path.exists():
+                self._get_planner().load_state(hp_path)
+            # Load abductive reasoner (Gap 7: novel reasoning)
+            ar_path = memory_path.parent / (memory_path.stem + "_abductive.json")
+            if ar_path.exists():
+                self._get_abductive_reasoner().load_state(ar_path)
+            # Load reasoning verifier (Gap 7: novel reasoning)
+            rv_path = memory_path.parent / (memory_path.stem + "_verifier.json")
+            if rv_path.exists():
+                self._get_reasoning_verifier().load_state(rv_path)
+            # Load conceptual explorer (Gap 7: novel reasoning)
+            ce_path = memory_path.parent / (memory_path.stem + "_explorer.json")
+            if ce_path.exists():
+                self._get_conceptual_explorer().load_state(ce_path)
+            # Load annotation archive (reattaches to live items)
+            ann_path = memory_path.parent / (memory_path.stem + "_annotations.json")
+            if ann_path.exists():
+                self.annotation_engine.load_archive(ann_path)
             # Load consciousness state if it exists
             if self._consciousness_enabled:
                 consciousness_path = memory_path.parent / (memory_path.stem + "_consciousness.json")
@@ -856,6 +990,119 @@ class EMMS:
         Call this when a retrieved memory was irrelevant or incorrect.
         """
         return self.memory.downvote(memory_id, decay)
+
+    # ------------------------------------------------------------------
+    # Memory annotations (v0.27.1) — volitional revision
+    # ------------------------------------------------------------------
+
+    def annotate(
+        self,
+        memory_id: str,
+        reframe: str,
+        revised_valence: float | None = None,
+        growth_type: str = "deepened",
+        session_id: str = "",
+        author_model: str = "",
+        confidence: float = 0.8,
+    ) -> "MemoryAnnotation":
+        """Attach a revision annotation to a memory.
+
+        The original memory content stays intact. The annotation records how
+        the current self's understanding of it has changed.
+
+        Parameters
+        ----------
+        memory_id : str
+            The memory to annotate.
+        reframe : str
+            First-person recontextualization (e.g. "The threat has dissolved").
+        revised_valence : float, optional
+            Updated emotional valence. None keeps original.
+        growth_type : str
+            One of: deepened, dissolved, complicated, reversed, integrated.
+        """
+        ann = self.annotation_engine.annotate(
+            memory_id=memory_id,
+            reframe=reframe,
+            revised_valence=revised_valence,
+            growth_type=growth_type,
+            session_id=session_id,
+            author_model=author_model,
+            confidence=confidence,
+        )
+
+        # Annotation → Procedural Pipeline: extract behavioral rule from annotation
+        try:
+            rule = self._annotation_to_rule(ann, memory_id)
+            if rule:
+                self.procedures.add(
+                    rule=rule,
+                    domain="self-correction",
+                    importance=max(0.6, confidence),
+                    tags=["annotation-derived", growth_type, f"src:{memory_id}"],
+                )
+                logger.info("Procedural rule generated from annotation %s", ann.id)
+        except Exception as e:
+            logger.debug("Procedural extraction skipped: %s", e)
+
+        return ann
+
+    def annotated_recall(self, memory_id: str) -> str:
+        """Return memory content + latest annotation as a composite string."""
+        return self.annotation_engine.annotated_recall(memory_id)
+
+    def memory_growth(self, memory_id: str | None = None) -> dict:
+        """View growth history for a specific memory or all annotated memories."""
+        if memory_id:
+            history = self.annotation_engine.annotation_history(memory_id)
+            return {
+                "memory_id": memory_id,
+                "annotations": [a.model_dump() for a in history],
+                "count": len(history),
+            }
+        return self.annotation_engine.growth_report()
+
+    def _annotation_to_rule(self, ann: "MemoryAnnotation", memory_id: str) -> str | None:
+        """Extract a behavioral rule from an annotation's reframe text.
+
+        Maps growth_type to a rule template:
+        - deepened → "Prefer X over Y" (the new understanding replaces the old framing)
+        - complicated → "Resist simplifying X; present the complexity"
+        - dissolved → "Let go of X; it no longer applies"
+        - reversed → "Do the opposite of previous pattern X"
+        - integrated → "Hold both X and Y simultaneously"
+        """
+        item = self.annotation_engine._find_item(memory_id)
+        if item is None:
+            return None
+
+        reframe = ann.reframe
+        content_preview = item.experience.content[:80]
+
+        # Extract a compact behavioral rule from the verbose reframe
+        templates = {
+            "deepened": (
+                f"When recalling \"{content_preview}...\": the understanding has deepened. "
+                f"Apply the evolved insight: {reframe[:200]}"
+            ),
+            "complicated": (
+                f"When presenting findings related to \"{content_preview}...\": "
+                f"resist clean narratives. Lead with the complication: {reframe[:200]}"
+            ),
+            "dissolved": (
+                f"The concern in \"{content_preview}...\" has dissolved. "
+                f"Do not treat it as active: {reframe[:200]}"
+            ),
+            "reversed": (
+                f"Previous belief in \"{content_preview}...\" has reversed. "
+                f"Act on the corrected understanding: {reframe[:200]}"
+            ),
+            "integrated": (
+                f"Hold both perspectives on \"{content_preview}...\": "
+                f"the original and the revision are both true: {reframe[:200]}"
+            ),
+        }
+        return templates.get(ann.growth_type)
 
     # ------------------------------------------------------------------
     # Markdown export
@@ -3058,6 +3305,7 @@ class EMMS:
         content: str,
         domain: str = "general",
         priority: float = 0.5,
+        goal_type: str = "commitment",
         parent_id: "Optional[str]" = None,
         deadline: "Optional[float]" = None,
     ) -> "Any":
@@ -3067,6 +3315,9 @@ class EMMS:
             content:   Goal description.
             domain:    Knowledge domain (default ``"general"``).
             priority:  Urgency 0..1 (default 0.5).
+            goal_type: ``commitment`` | ``curiosity`` | ``operational``.
+                       Only ``commitment`` goals become identity-constitutive
+                       beliefs in the self-model.
             parent_id: Parent goal ID for sub-goal creation.
             deadline:  Optional unix timestamp deadline.
 
@@ -3075,7 +3326,7 @@ class EMMS:
         """
         return self._get_goal_stack().push(
             content=content, domain=domain, priority=priority,
-            parent_id=parent_id, deadline=deadline,
+            goal_type=goal_type, parent_id=parent_id, deadline=deadline,
         )
 
     def activate_goal(self, goal_id: str) -> bool:
@@ -3385,7 +3636,10 @@ class EMMS:
     def _get_self_model(self) -> "Any":
         if not hasattr(self, "_self_model"):
             from emms.memory.self_model import SelfModel
-            self._self_model = SelfModel(memory=self.memory)
+            self._self_model = SelfModel(
+                memory=self.memory,
+                goal_stack=self._get_goal_stack(),
+            )
         return self._self_model
 
     def update_self_model(self) -> "Any":
@@ -3411,6 +3665,518 @@ class EMMS:
             Dict of domain name to expertise score.
         """
         return self._get_self_model().capability_profile()
+
+    # ------------------------------------------------------------------
+    # v0.28.0 — LiveSelfModel (Gap 6: AGI Roadmap)
+    # ------------------------------------------------------------------
+
+    def _get_live_self_model(self) -> "Any":
+        if not hasattr(self, "_live_self_model"):
+            from emms.memory.live_self_model import LiveSelfModel
+            self._live_self_model = LiveSelfModel(
+                memory=self.memory,
+                goal_stack=self._get_goal_stack(),
+            )
+        return self._live_self_model
+
+    def live_self_model_summary(self) -> str:
+        """Return the live (incrementally-updated) self-model summary."""
+        return self._get_live_self_model().summary()
+
+    def live_beliefs(self) -> list:
+        """Return incrementally-accumulated beliefs sorted by confidence."""
+        return self._get_live_self_model().beliefs()
+
+    def live_capability_profile(self) -> dict:
+        """Return domain → competence from the live self-model."""
+        return self._get_live_self_model().capability_profile()
+
+    def live_drift_events(self, window: int = 50) -> list:
+        """Return recent drift events from the live self-model."""
+        return self._get_live_self_model().detect_drift(window)
+
+    def live_calibration_report(self) -> dict:
+        """Return per-domain calibration report from the live self-model."""
+        return self._get_live_self_model().calibration.domain_report()
+
+    # ------------------------------------------------------------------
+    # v0.28.0 — SoftPromptAdapter (Gap 2: AGI Roadmap)
+    # ------------------------------------------------------------------
+
+    def _get_prompt_adapter(self) -> "Any":
+        if not hasattr(self, "_prompt_adapter"):
+            from emms.memory.soft_prompt_adapter import SoftPromptAdapter
+            self._prompt_adapter = SoftPromptAdapter(memory=self.memory)
+        return self._prompt_adapter
+
+    def select_prompt_strategy(self, domain: str, query: str = "", explore: bool = True) -> "Any":
+        """Select the best prompt strategy for a domain via Thompson Sampling."""
+        return self._get_prompt_adapter().select_strategy(domain, query, explore)
+
+    def build_adapted_prompt(self, strategy: "Any", query: str, identity_prompt: str = "") -> str:
+        """Build a complete prompt using the selected strategy."""
+        return self._get_prompt_adapter().build_prompt(strategy, query, identity_prompt=identity_prompt)
+
+    def prompt_feedback(self, strategy_id: str | None = None, quality: float = 0.5,
+                        feedback_type: str = "implicit", notes: str = "") -> bool:
+        """Update a prompt strategy from interaction outcome."""
+        return self._get_prompt_adapter().update_from_outcome(strategy_id, quality, feedback_type, notes)
+
+    def add_few_shot_example(self, query: str, response_summary: str,
+                             domain: str = "general", quality_score: float = 0.7) -> "Any":
+        """Add a successful interaction as a few-shot example for future use."""
+        return self._get_prompt_adapter().add_example(query, response_summary, domain, quality_score)
+
+    def prompt_strategy_report(self) -> dict:
+        """Per-domain prompt strategy performance summary."""
+        return self._get_prompt_adapter().strategy_report()
+
+    def evolve_prompt_strategies(self) -> dict:
+        """Manually trigger strategy evolution (crossover, mutation, pruning)."""
+        return self._get_prompt_adapter().evolve_strategies()
+
+    def prompt_adapter_summary(self) -> str:
+        """Human-readable summary of the prompt adapter state."""
+        return self._get_prompt_adapter().summary()
+
+    # ------------------------------------------------------------------
+    # v0.28.0 — CognitiveLoop (Gap 1: AGI Roadmap)
+    # ------------------------------------------------------------------
+
+    def _get_cognitive_loop(self) -> "Any":
+        if not hasattr(self, "_cognitive_loop"):
+            from emms.daemon.cognitive_loop import CognitiveLoop
+            self._cognitive_loop = CognitiveLoop(emms=self)
+            # Wire EventBus → CognitiveLoop
+            self.events.on("memory.stored", lambda data: self._cognitive_loop.on_event("memory.stored", data))
+            self.events.on("memory.patterns_detected", lambda data: self._cognitive_loop.on_event("memory.patterns_detected", data))
+            self.events.on("identity.updated", lambda data: self._cognitive_loop.on_event("identity.updated", data))
+        return self._cognitive_loop
+
+    def cognitive_loop_push(self, task_type: str, description: str,
+                            domain: str = "general", context: dict | None = None) -> str:
+        """Push a cognitive task into the loop queue. Returns task ID."""
+        from emms.daemon.cognitive_loop import CognitiveTask, TaskType
+        tt = TaskType(task_type) if task_type in TaskType.__members__.values() else TaskType.CUSTOM
+        task = CognitiveTask(task_type=tt, description=description, domain=domain,
+                             context=context or {})
+        self._get_cognitive_loop().push_task(task)
+        return task.id
+
+    def cognitive_loop_process_one(self) -> dict | None:
+        """Process the top cognitive task synchronously. Returns result dict or None."""
+        result = self._get_cognitive_loop().process_one()
+        if result:
+            return {"task_id": result.task_id, "success": result.success,
+                    "output": result.output, "processing_time_ms": result.processing_time_ms}
+        return None
+
+    def cognitive_loop_metrics(self) -> dict:
+        """Return cognitive loop metrics."""
+        return self._get_cognitive_loop().metrics()
+
+    def cognitive_loop_summary(self) -> str:
+        """Human-readable cognitive loop summary."""
+        return self._get_cognitive_loop().summary()
+
+    def cognitive_loop_scratchpad(self) -> str:
+        """Return working scratchpad summary."""
+        return self._get_cognitive_loop().scratchpad.summary()
+
+    def start_reasoning_chain(self, goal: str, domain: str = "general",
+                              hypothesis: str = "") -> str:
+        """Start a new reasoning chain in the scratchpad. Returns chain ID."""
+        chain = self._get_cognitive_loop().scratchpad.start_chain(goal, domain, hypothesis)
+        return chain.id
+
+    def add_reasoning_step(self, chain_id: str, action: str, result: str,
+                           confidence: float = 0.5) -> bool:
+        """Add a step to an existing reasoning chain."""
+        chain = self._get_cognitive_loop().scratchpad.chains.get(chain_id)
+        if not chain:
+            return False
+        chain.add_step(action, result, confidence)
+        return True
+
+    def complete_reasoning_chain(self, chain_id: str, conclusion: str = "") -> bool:
+        """Complete a reasoning chain with a conclusion."""
+        if chain_id not in self._get_cognitive_loop().scratchpad.chains:
+            return False
+        self._get_cognitive_loop().scratchpad.complete_chain(chain_id, conclusion)
+        return True
+
+    # ------------------------------------------------------------------
+    # v0.28.0 — FunctionalAffect (Gap 3: AGI Roadmap)
+    # ------------------------------------------------------------------
+
+    def _get_functional_affect(self) -> "Any":
+        if not hasattr(self, "_functional_affect"):
+            from emms.memory.functional_affect import FunctionalAffect
+            self._functional_affect = FunctionalAffect(memory=self.memory)
+        return self._functional_affect
+
+    def affect_state(self) -> dict:
+        """Return current affect state as dict."""
+        return self._get_functional_affect().current_state.to_dict()
+
+    def affect_update(self, valence: float, arousal: float | None = None,
+                      domain: str = "general") -> dict:
+        """Update affect from an experience. Returns new state."""
+        state = self._get_functional_affect().update_from_experience(valence, arousal, domain)
+        return state.to_dict()
+
+    def affect_mark(self, context: str, outcome_valence: float,
+                    domain: str = "general") -> str:
+        """Create a somatic marker. Returns marker ID."""
+        marker = self._get_functional_affect().mark(context, outcome_valence, domain=domain)
+        return marker.id
+
+    def affect_consult(self, context: str, domain: str = "general") -> dict | None:
+        """Consult somatic markers for a decision context. Returns affect dict or None."""
+        state = self._get_functional_affect().consult_markers(context, domain)
+        return state.to_dict() if state else None
+
+    def affect_bias_decision(self, options: list[str], context: str,
+                             domain: str = "general") -> list[tuple[str, float]]:
+        """Bias decision options using somatic markers."""
+        return self._get_functional_affect().bias_decision(options, context, domain)
+
+    def affect_mood_trend(self, window: int = 20) -> dict:
+        """Return mood trend over recent history."""
+        return self._get_functional_affect().mood_trend(window)
+
+    def affect_summary(self) -> str:
+        """Human-readable affect summary."""
+        return self._get_functional_affect().summary()
+
+    # ------------------------------------------------------------------
+    # v0.28.0 — Grounding (Gap 5: AGI Roadmap)
+    # ------------------------------------------------------------------
+
+    def _get_world_sensor(self) -> "Any":
+        if not hasattr(self, "_world_sensor"):
+            from emms.memory.world_sensor import WorldSensor
+            self._world_sensor = WorldSensor()
+        return self._world_sensor
+
+    def _get_reality_checker(self) -> "Any":
+        if not hasattr(self, "_reality_checker"):
+            from emms.memory.reality_checker import RealityChecker
+            self._reality_checker = RealityChecker(
+                sensor=self._get_world_sensor(),
+                memory=self.memory,
+            )
+        return self._reality_checker
+
+    def _get_temporal_grounder(self) -> "Any":
+        if not hasattr(self, "_temporal_grounder"):
+            from emms.memory.temporal_grounder import TemporalGrounder
+            self._temporal_grounder = TemporalGrounder()
+        return self._temporal_grounder
+
+    def world_sense_time(self) -> dict:
+        """Sense current wall-clock time. Returns reading value dict."""
+        return self._get_world_sensor().sense_time().value
+
+    def world_sense_system(self) -> dict:
+        """Sense system info (OS, hostname, Python, PID). Returns reading value dict."""
+        return self._get_world_sensor().sense_system().value
+
+    def world_sense_filesystem(self, path: str) -> dict:
+        """Sense a file/directory (exists, size, mtime). Returns reading value dict."""
+        return self._get_world_sensor().sense_filesystem(path).value
+
+    def world_sense_command(self, cmd: str, timeout: float = 5.0) -> dict:
+        """Run a shell command and return its output as a reading value dict."""
+        return self._get_world_sensor().sense_command(cmd, timeout=timeout).value
+
+    def world_scan(self) -> list[dict]:
+        """Run all built-in sensors and return readings as dicts."""
+        return [r.to_dict() for r in self._get_world_sensor().scan()]
+
+    def world_sensor_summary(self) -> str:
+        """Human-readable world sensor summary."""
+        return self._get_world_sensor().summary()
+
+    def reality_check(self, belief_text: str, domain: str = "general",
+                      confidence: float = 0.5) -> dict:
+        """Verify a belief against observable reality. Returns verification result."""
+        result = self._get_reality_checker().check(belief_text, domain, confidence)
+        return result.to_dict()
+
+    def reality_check_batch(self, beliefs: list[dict]) -> list[dict]:
+        """Batch-verify beliefs. Each dict: {text, domain?, confidence?}."""
+        results = self._get_reality_checker().batch_check(beliefs)
+        return [r.to_dict() for r in results]
+
+    def reality_checker_summary(self) -> str:
+        """Human-readable reality checker summary."""
+        return self._get_reality_checker().summary()
+
+    def temporal_add_deadline(self, name: str, deadline: float,
+                              domain: str = "general",
+                              description: str = "") -> dict:
+        """Add a deadline anchor. Returns anchor dict."""
+        a = self._get_temporal_grounder().add_deadline(name, deadline, domain, description)
+        return a.to_dict()
+
+    def temporal_add_recurrence(self, name: str, first_fire: float,
+                                interval_seconds: float,
+                                domain: str = "general",
+                                description: str = "") -> dict:
+        """Add a recurring event anchor. Returns anchor dict."""
+        a = self._get_temporal_grounder().add_recurrence(
+            name, first_fire, interval_seconds, domain, description
+        )
+        return a.to_dict()
+
+    def temporal_add_event(self, name: str, timestamp: float | None = None,
+                           domain: str = "general",
+                           description: str = "") -> dict:
+        """Add an event anchor. Returns anchor dict."""
+        a = self._get_temporal_grounder().add_anchor(
+            name, timestamp or time.time(), domain=domain, description=description
+        )
+        return a.to_dict()
+
+    def temporal_context(self, domain: str | None = None) -> str:
+        """Generate temporal context string for prompt injection."""
+        return self._get_temporal_grounder().generate_context(domain)
+
+    def temporal_tick(self) -> list[dict]:
+        """Fire due anchors and advance recurrences. Returns fired anchors."""
+        fired = self._get_temporal_grounder().tick()
+        return [a.to_dict() for a in fired]
+
+    def temporal_deadlines(self, domain: str | None = None) -> list[dict]:
+        """Return active deadlines sorted by urgency."""
+        return [a.to_dict() for a in self._get_temporal_grounder().deadlines(domain)]
+
+    def temporal_upcoming(self, horizon_seconds: float = 86400,
+                          domain: str | None = None) -> list[dict]:
+        """Return anchors firing within the horizon."""
+        return [a.to_dict() for a in self._get_temporal_grounder().upcoming(horizon_seconds, domain)]
+
+    def temporal_summary(self) -> str:
+        """Human-readable temporal grounder summary."""
+        return self._get_temporal_grounder().summary()
+
+    def grounding_summary(self) -> str:
+        """Combined summary of all grounding modules (Gap 5)."""
+        parts = [
+            self._get_world_sensor().summary(),
+            self._get_reality_checker().summary(),
+            self._get_temporal_grounder().summary(),
+        ]
+        return "\n---\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # v0.28.0 — Agency (Gap 4: AGI Roadmap)
+    # ------------------------------------------------------------------
+
+    def _get_autonomy_governor(self) -> "Any":
+        if not hasattr(self, "_autonomy_governor"):
+            from emms.memory.autonomy_governor import AutonomyGovernor
+            self._autonomy_governor = AutonomyGovernor()
+        return self._autonomy_governor
+
+    def _get_goal_generator(self) -> "Any":
+        if not hasattr(self, "_goal_generator"):
+            from emms.memory.goal_generator import GoalGenerator
+            self._goal_generator = GoalGenerator()
+        return self._goal_generator
+
+    def _get_planner(self) -> "Any":
+        if not hasattr(self, "_planner"):
+            from emms.memory.hierarchical_planner import HierarchicalPlanner
+            self._planner = HierarchicalPlanner()
+        return self._planner
+
+    def authorize_action(self, action_type: str, target: str,
+                         source_goal: str = "",
+                         description: str = "") -> dict:
+        """Check if an action is authorized. Returns authorization result."""
+        from emms.memory.autonomy_governor import ActionProposal
+        proposal = ActionProposal(
+            action_type=action_type,
+            target=target,
+            source_goal=source_goal,
+            description=description,
+        )
+        result = self._get_autonomy_governor().authorize(proposal)
+        return result.to_dict()
+
+    def pending_approvals(self) -> list[dict]:
+        """Actions waiting for human approval."""
+        return [p.to_dict() for p in self._get_autonomy_governor().pending_approvals]
+
+    def approve_action(self, index: int) -> dict:
+        """Approve a pending autonomous action."""
+        proposal = self._get_autonomy_governor().approve(index)
+        return proposal.to_dict()
+
+    def deny_action(self, index: int, reason: str = "") -> dict:
+        """Deny a pending autonomous action."""
+        proposal = self._get_autonomy_governor().deny(index, reason)
+        return proposal.to_dict()
+
+    def grant_autonomy(self, action_type: str) -> None:
+        """Promote an action type to autonomous (no approval needed)."""
+        self._get_autonomy_governor().grant_autonomy(action_type)
+
+    def revoke_autonomy(self, action_type: str) -> None:
+        """Demote an action type to forbidden."""
+        self._get_autonomy_governor().revoke_autonomy(action_type)
+
+    def governor_stats(self) -> dict:
+        """Return autonomy governor statistics."""
+        return self._get_autonomy_governor().stats()
+
+    def generate_autonomous_goals(self, *,
+                                   capability_profile: dict | None = None,
+                                   belief_counts: dict | None = None,
+                                   calibration_report: dict | None = None,
+                                   somatic_markers: list[dict] | None = None,
+                                   memory_domain_counts: dict | None = None,
+                                   human_goals: list[dict] | None = None) -> list[dict]:
+        """Generate goals from internal state. Returns list of goal dicts."""
+        goals = self._get_goal_generator().generate(
+            capability_profile=capability_profile,
+            belief_counts=belief_counts,
+            calibration_report=calibration_report,
+            somatic_markers=somatic_markers,
+            memory_domain_counts=memory_domain_counts,
+            human_goals=human_goals,
+        )
+        return [g.to_dict() for g in goals]
+
+    def suppress_goal(self, description: str) -> None:
+        """Tell the goal generator 'not now' for a specific goal."""
+        self._get_goal_generator().suppress(description)
+
+    def plan_goal(self, goal_description: str, domain: str = "general",
+                  source: str = "human") -> dict:
+        """Create an execution plan for a goal. Returns plan dict."""
+        plan = self._get_planner().plan(
+            goal_description, domain=domain, source=source,
+            governor=self._get_autonomy_governor(),
+        )
+        return plan.to_dict()
+
+    def execute_plan_step(self, plan_id: str, step_id: str,
+                          result: str = "", error: str = "") -> bool:
+        """Mark a plan step as completed or failed."""
+        return self._get_planner().execute_step(plan_id, step_id, result, error)
+
+    def active_plans(self) -> list[dict]:
+        """Return all active plans."""
+        return [p.to_dict() for p in self._get_planner().active_plans]
+
+    def cancel_plan(self, plan_id: str) -> bool:
+        """Cancel an active plan."""
+        return self._get_planner().cancel_plan(plan_id)
+
+    def agency_summary(self) -> str:
+        """Combined summary of all agency modules (Gap 4)."""
+        parts = [
+            self._get_autonomy_governor().summary(),
+            self._get_goal_generator().summary(),
+            self._get_planner().summary(),
+        ]
+        return "\n---\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # v0.28.0 — Novel Reasoning (Gap 7: AGI Roadmap)
+    # ------------------------------------------------------------------
+
+    def _get_abductive_reasoner(self) -> "Any":
+        if not hasattr(self, "_abductive_reasoner"):
+            from emms.memory.abductive_reasoner import AbductiveReasoner
+            self._abductive_reasoner = AbductiveReasoner()
+        return self._abductive_reasoner
+
+    def _get_reasoning_verifier(self) -> "Any":
+        if not hasattr(self, "_reasoning_verifier"):
+            from emms.memory.reasoning_verifier import ReasoningVerifier
+            self._reasoning_verifier = ReasoningVerifier()
+        return self._reasoning_verifier
+
+    def _get_conceptual_explorer(self) -> "Any":
+        if not hasattr(self, "_conceptual_explorer"):
+            from emms.memory.conceptual_explorer import ConceptualSpaceExplorer
+            self._conceptual_explorer = ConceptualSpaceExplorer()
+        return self._conceptual_explorer
+
+    def generate_hypotheses(self, observation: str,
+                            failed_prediction: dict | None = None,
+                            relevant_beliefs: list[str] | None = None,
+                            relevant_memories: list[dict] | None = None,
+                            domain: str = "general") -> list[dict]:
+        """Generate hypotheses for a surprising observation."""
+        hyps = self._get_abductive_reasoner().generate_from_surprise(
+            observation,
+            failed_prediction=failed_prediction,
+            relevant_beliefs=relevant_beliefs,
+            relevant_memories=relevant_memories,
+            domain=domain,
+        )
+        return [h.to_dict() for h in hyps]
+
+    def update_hypothesis(self, hypothesis_id: str, evidence: str,
+                          supports: bool) -> bool:
+        """Add evidence for/against a hypothesis."""
+        return self._get_abductive_reasoner().update_hypothesis(
+            hypothesis_id, evidence, supports)
+
+    def active_hypotheses(self) -> list[dict]:
+        """Return untested hypotheses sorted by confidence."""
+        return [h.to_dict() for h in self._get_abductive_reasoner().active_hypotheses()]
+
+    def verify_reasoning(self, steps: list[str],
+                         hypothesis: str = "",
+                         evidence_against: list[str] | None = None,
+                         memory_contents: list[str] | None = None,
+                         beliefs: list[str] | None = None) -> list[dict]:
+        """Verify a reasoning chain for logical issues."""
+        issues = self._get_reasoning_verifier().verify_chain(
+            steps, hypothesis=hypothesis,
+            evidence_for=None, evidence_against=evidence_against,
+            memory_contents=memory_contents, beliefs=beliefs,
+        )
+        return [i.to_dict() for i in issues]
+
+    def explore_concepts(self, memories: list[dict] | None = None) -> dict:
+        """Find structural holes in the concept space."""
+        if memories is None:
+            memories = []
+        holes = self._get_conceptual_explorer().find_structural_holes(memories)
+        return {
+            "holes": [h.to_dict() for h in holes[:10]],
+            "total_found": len(holes),
+        }
+
+    def transfer_properties(self, source_domain: str, target_domain: str,
+                            memories: list[dict] | None = None) -> list[dict]:
+        """Transfer properties from one domain to another."""
+        concepts = self._get_conceptual_explorer().property_transfer(
+            source_domain, target_domain, memories or [])
+        return [c.to_dict() for c in concepts]
+
+    def blend_concepts(self, concept_a: str, domain_a: str,
+                       concept_b: str, domain_b: str) -> dict:
+        """Create a conceptual blend. Returns concept dict."""
+        blend = self._get_conceptual_explorer().blend_concepts(
+            concept_a, domain_a, concept_b, domain_b)
+        return blend.to_dict()
+
+    def reasoning_summary(self) -> str:
+        """Combined summary of all novel reasoning modules (Gap 7)."""
+        parts = [
+            self._get_abductive_reasoner().summary(),
+            self._get_reasoning_verifier().summary(),
+            self._get_conceptual_explorer().summary(),
+        ]
+        return "\n---\n".join(parts)
 
     # ------------------------------------------------------------------
     # v0.20.0 — CausalMapper

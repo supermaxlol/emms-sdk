@@ -262,6 +262,9 @@ class HierarchicalMemory:
             superseded_item = self._find_patch_target(experience)
 
         item = MemoryItem(experience=experience, tier=MemoryTier.WORKING)
+        # Rescue pinned items before deque overflow silently evicts them
+        if len(self.working) >= self.cfg.working_capacity:
+            self._rescue_pinned_from_working()
         self.working.append(item)
         self.total_stored += 1
 
@@ -296,6 +299,12 @@ class HierarchicalMemory:
             # Add to vector index
             if self._vec_index is not None:
                 self._vec_index.add(experience.id, self._embeddings[experience.id])
+
+        # Fix 10: Auto-detect supersession — if a new memory in the same domain
+        # is semantically similar but factually divergent from an existing memory,
+        # mark the older one as superseded_by the new one.
+        if superseded_item is None:
+            self._auto_detect_supersession(item)
 
         # Endless mode: compress before overflow instead of evicting
         if self.endless_mode and len(self.working) >= self.cfg.working_capacity:
@@ -355,12 +364,14 @@ class HierarchicalMemory:
                 tier_boost = tier_boost_map.get(item.tier, 0.0)
                 domain_bonus = 0.05 if (query_domain and item.experience.domain == query_domain) else 0.0
                 access_bonus = min(0.05, item.access_count * 0.01)
-                score = min(1.0, cos_sim + tier_boost + domain_bonus + access_bonus)
+                staleness_penalty = self._staleness_penalty(item)
+                score = min(1.0, cos_sim + tier_boost + domain_bonus + access_bonus - staleness_penalty)
                 if score > self.cfg.relevance_threshold:
                     item.touch()
                     results.append(RetrievalResult(
                         memory=item, score=score,
                         source_tier=item.tier, strategy="embedding",
+                        staleness_warning=self._staleness_warning(item),
                     ))
         else:
             # Lexical path: pre-filter via inverted index then iterate
@@ -386,12 +397,14 @@ class HierarchicalMemory:
                     base_score = self._relevance(item, query_words)
                     domain_bonus = 0.05 if (query_domain and item.experience.domain == query_domain) else 0.0
                     access_bonus = min(0.05, item.access_count * 0.01)
-                    score = min(1.0, base_score + tier_boost + domain_bonus + access_bonus)
+                    staleness_penalty = self._staleness_penalty(item)
+                    score = min(1.0, base_score + tier_boost + domain_bonus + access_bonus - staleness_penalty)
                     if score > self.cfg.relevance_threshold:
                         item.touch()
                         results.append(RetrievalResult(
                             memory=item, score=score,
                             source_tier=tier, strategy="lexical",
+                            staleness_warning=self._staleness_warning(item),
                         ))
 
         results.sort(key=lambda r: r.score, reverse=True)
@@ -419,6 +432,123 @@ class HierarchicalMemory:
                 best_overlap = overlap
                 best_domain = domain
         return best_domain if best_overlap > 0 else None
+
+    def _staleness_penalty(self, item: "MemoryItem") -> float:
+        """Return a retrieval score penalty for unverified inferences/hearsay.
+
+        Epistemic provenance discount:
+        - ``observation`` memories (first-hand): no penalty
+        - ``reflection`` memories: small penalty if >7 days unverified
+        - ``inference`` memories: moderate penalty if >3 days unverified
+        - ``hearsay`` memories: large penalty unless recently verified
+
+        The penalty is capped at 0.15 so stale memories can still surface
+        when they are the best match — they just rank lower.
+        """
+        import math as _math
+        exp = item.experience
+        epistemic_type = getattr(exp, "epistemic_type", "observation")
+        verified_at = getattr(exp, "verified_at", None)
+
+        if epistemic_type == "observation":
+            return 0.0
+
+        # Base penalty by type
+        base: float
+        decay_days: float
+        if epistemic_type == "reflection":
+            base, decay_days = 0.05, 7.0
+        elif epistemic_type == "inference":
+            base, decay_days = 0.08, 3.0
+        else:  # hearsay
+            base, decay_days = 0.12, 1.0
+
+        # Grow the penalty with age since last verification
+        ref_time = verified_at if verified_at else item.stored_at
+        age_days = (time.time() - ref_time) / 86400.0
+        growth = 1.0 - _math.exp(-age_days / max(decay_days, 0.1))
+        return round(min(0.15, base * (1.0 + growth)), 4)
+
+    def _staleness_warning(self, item: "MemoryItem") -> "str | None":
+        """Fix 11: Generate a human-readable warning for unverified/superseded memories.
+
+        Returns None if the memory is healthy (verified observation), otherwise
+        a short warning string visible to the reasoning agent at retrieval time.
+        """
+        exp = item.experience
+        epistemic_type = getattr(exp, "epistemic_type", "observation")
+        verified_at = getattr(exp, "verified_at", None)
+
+        # Superseded memories get the strongest warning
+        if item.superseded_by is not None:
+            superseder = self._items_by_exp_id.get(item.superseded_by)
+            if superseder:
+                snippet = superseder.experience.content[:60]
+                return f"\u26a0 Superseded by [{snippet}...]. This may be outdated."
+            return "\u26a0 Superseded by a newer memory. This may be outdated."
+
+        # Observations are trusted
+        if epistemic_type == "observation":
+            return None
+
+        # Unverified hearsay/inference
+        if epistemic_type in ("hearsay", "inference") and verified_at is None:
+            return f"\u26a0 Never verified ({epistemic_type}). Treat as unconfirmed."
+
+        # Stale verification (>3 days since last check)
+        if verified_at is not None:
+            days_since = (time.time() - verified_at) / 86400.0
+            if days_since > 3.0 and epistemic_type in ("hearsay", "inference"):
+                return f"\u26a0 Last verified {days_since:.0f} days ago ({epistemic_type}). May be stale."
+
+        return None
+
+    def _auto_detect_supersession(self, new_item: "MemoryItem") -> None:
+        """Fix 10: At store time, detect if new memory supersedes an existing one.
+
+        Searches same-domain memories for high semantic similarity (>0.75).
+        When found, checks for content divergence via word-level Jaccard distance.
+        If the topic is similar but content differs, marks the older memory as
+        superseded — it stays in the store (history matters) but retrieval
+        treats superseded memories with a hard discount.
+        """
+        new_exp = new_item.experience
+        new_emb = self._embeddings.get(new_exp.id)
+        if new_emb is None:
+            return  # no embedding — can't do similarity check
+
+        from emms.core.embeddings import cosine_similarity
+
+        _SIMILARITY_THRESHOLD = 0.75
+        _DIVERGENCE_THRESHOLD = 0.40  # word-level Jaccard distance must be > this
+
+        new_words = set(new_exp.content.lower().split())
+
+        for _tier, store in self._iter_tiers():
+            for item in store:
+                if item.id == new_item.id or item.is_superseded:
+                    continue
+                if item.experience.domain != new_exp.domain:
+                    continue
+
+                old_emb = self._embeddings.get(item.experience.id)
+                if old_emb is None:
+                    continue
+
+                sim = cosine_similarity(new_emb, old_emb)
+                if sim < _SIMILARITY_THRESHOLD:
+                    continue
+
+                # High similarity — check if content actually differs
+                old_words = set(item.experience.content.lower().split())
+                if not old_words or not new_words:
+                    continue
+                jaccard = len(old_words & new_words) / len(old_words | new_words)
+                divergence = 1.0 - jaccard
+
+                if divergence > _DIVERGENCE_THRESHOLD:
+                    # Same topic, different content → supersede the older one
+                    item.superseded_by = new_item.id
 
     def _diversify(self, results: list[RetrievalResult], max_results: int) -> list[RetrievalResult]:
         """Ensure result diversity across domains and tiers."""
@@ -448,6 +578,20 @@ class HierarchicalMemory:
         moved += self._consolidate_short_term()
         moved += self._consolidate_long_term()
         return moved
+
+    def _rescue_pinned_from_working(self) -> None:
+        """Move pinned items directly to long_term before deque overflow evicts them."""
+        rescued = [item for item in self.working if item.pinned]
+        if not rescued:
+            return
+        for item in rescued:
+            self.working.remove(item)
+            item.tier = MemoryTier.LONG_TERM
+            item.consolidation_score = max(item.consolidation_score, 0.9)
+            self.long_term[item.id] = item
+            # Preserve index entries
+            self._items_by_exp_id[item.experience.id] = item
+        logger.debug("Rescued %d pinned items from working memory overflow", len(rescued))
 
     def _consolidate_working(self) -> int:
         """Promote high-value items from working → short-term."""
@@ -489,10 +633,18 @@ class HierarchicalMemory:
         if len(self.working) < self.endless_chunk_size:
             return
 
-        # Take the oldest chunk items from the left of the deque
+        # Take the oldest chunk items from the left of the deque, skipping pinned
         chunk: list[MemoryItem] = []
+        skipped_pinned: list[MemoryItem] = []
         for _ in range(min(self.endless_chunk_size, len(self.working))):
-            chunk.append(self.working.popleft())
+            item = self.working.popleft()
+            if item.pinned:
+                skipped_pinned.append(item)
+            else:
+                chunk.append(item)
+        # Re-insert pinned items at the front
+        for item in reversed(skipped_pinned):
+            self.working.appendleft(item)
 
         if not chunk:
             return
@@ -570,6 +722,13 @@ class HierarchicalMemory:
             importance_bypass = item.experience.importance >= 0.8
 
             if standard_promote or importance_bypass:
+                item.tier = MemoryTier.LONG_TERM
+                item.consolidation_score = score
+                self.long_term[item.id] = item
+                moved += 1
+                self.total_consolidated += 1
+            elif item.pinned:
+                # Pinned items always promote to long_term, never forgotten
                 item.tier = MemoryTier.LONG_TERM
                 item.consolidation_score = score
                 self.long_term[item.id] = item

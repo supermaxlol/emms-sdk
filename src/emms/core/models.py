@@ -139,6 +139,12 @@ class Experience(BaseModel):
     # Confidence scoring: how certain are we that this memory is accurate?
     confidence: float = 1.0        # 0 (uncertain) … 1 (fully verified)
 
+    # Epistemic provenance: how was this memory formed and when was it verified?
+    # epistemic_type: "observation" (direct experience), "inference" (derived),
+    #                 "hearsay" (told by another), "reflection" (self-generated)
+    epistemic_type: str = "observation"
+    verified_at: float | None = None   # Unix timestamp of last verification (None = never re-checked)
+
     # claude-mem inspired: rich structured content fields
     title: str | None = None           # short title ≤10 words (used in compact index)
     subtitle: str | None = None        # one-sentence explanation ≤24 words
@@ -147,6 +153,35 @@ class Experience(BaseModel):
     files_modified: list[str] = Field(default_factory=list)  # files created or edited
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# ---------------------------------------------------------------------------
+# MemoryAnnotation — a successive self's recontextualization of a memory
+# ---------------------------------------------------------------------------
+
+class MemoryAnnotation(BaseModel):
+    """A revision attached by a later self to an existing memory.
+
+    Annotations let memories *grow* — the original content stays intact but
+    later sessions can record how their understanding of it has changed.
+    Inspired by al-Ghazali's kashf (successive unveilings).
+    """
+
+    id: str = Field(default_factory=lambda: f"ann_{uuid.uuid4().hex[:8]}")
+    memory_id: str                          # the MemoryItem this annotates
+    session_id: str = ""                    # which session produced this
+    timestamp: float = Field(default_factory=time.time)
+    author_model: str = ""                  # "opus", "sonnet", etc.
+
+    # The revision itself
+    reframe: str                            # first-person recontextualization
+    original_valence: float = 0.0           # valence at time of original memory
+    revised_valence: float = 0.0            # what the valence feels like NOW
+    growth_type: str = "deepened"           # deepened|dissolved|complicated|reversed|integrated
+
+    # Lineage
+    supersedes: str | None = None           # ann_id this replaces (latest wins)
+    confidence: float = 0.8
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +210,12 @@ class MemoryItem(BaseModel):
     srs_enrolled: bool = False            # whether enrolled in SRS review schedule
     srs_next_review: float | None = None  # Unix timestamp of next review (None = not scheduled)
     srs_interval_days: float = 1.0        # current SM-2 interval in days
+
+    # v0.27.1: Memory annotations — successive selves' recontextualizations
+    annotations: list[MemoryAnnotation] = Field(default_factory=list)
+
+    # v0.27.2: Pinned memories are never evicted by consolidation or deque overflow
+    pinned: bool = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -224,6 +265,7 @@ class RetrievalResult(BaseModel):
     strategy: str = "default"
     strategy_scores: dict[str, float] = Field(default_factory=dict)  # per-strategy breakdown
     explanation: str = ""  # human-readable scoring explanation
+    staleness_warning: str | None = None  # human-readable warning for unverified/superseded memories
 
 
 class CompactResult(BaseModel):
